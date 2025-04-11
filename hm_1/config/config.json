@@ -1,0 +1,8 @@
+{
+    "REPORT_SIZE": 100,
+    "REPORT_DIR": "./reports",
+    "LOG_DIR": "./logs",
+    "LOG_FILE": "log.txt",
+    "ERRORS_THRESHOLD": 10,
+    "log_level": "debug"
+}

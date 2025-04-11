@@ -1,0 +1,20 @@
+Latest log file is ./logs/nginx-access-ui.log-20170630.gz, date 2017.06.30
+Parsing completed. Successfully parsed 2613686 out of 2613774 lines (error ratio: 0.00).
+Report successfully created: ./reports/report-2017.06.30.html
+Latest log file is ./logs/nginx-access-ui.log-20170630.gz, date 2017.06.30
+Parsing completed. Successfully parsed 2613686 out of 2613774 lines (error ratio: 0.00).
+Report successfully created: ./reports/report-2017.06.30.html
+Latest log file is ./logs/nginx-access-ui.log-20170630.gz, date 2017.06.30
+Report already exists: ./reports/report-2017.06.30.html. Exiting.
+Latest log file is ./logs/nginx-access-ui.log-20170630.gz, date 2017.06.30
+Parsing completed. Successfully parsed 2613686 out of 2613774 lines (error ratio: 0.00).
+Report successfully created: ./reports/report-2017.06.30.html
+Latest log file is ./logs/nginx-access-ui.log-20170630.gz, date 2017.06.30
+Report already exists: ./reports/report-2017.06.30.html. Exiting.
+Latest log file is ./logs/nginx-access-ui.log-20170630.gz, date 2017.06.30
+Report already exists: ./reports/report-2017.06.30.html. Exiting.
+Latest log file is ./logs/nginx-access-ui.log-20170630.gz, date 2017.06.30
+Parsing completed. Successfully parsed 2613686 out of 2613774 lines (error ratio: 0.00).
+Report successfully created: ./reports/report-2017.06.30.html
+Latest log file is ./logs/nginx-access-ui.log-20170630.gz, date 2017.06.30
+Report already exists: ./reports/report-2017.06.30.html. Exiting.
