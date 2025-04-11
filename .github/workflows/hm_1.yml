@@ -2,13 +2,23 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
+    paths:
+      - 'hm_1/**'
+      
   pull_request:
-    branches: [ main ]
+    branches:
+      - main
+    paths:
+      - 'hm_1/**'
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hm_1
 
     steps:
       - name: 🧾 Checkout repository
@@ -27,13 +37,13 @@ jobs:
       - name: 📦 Install dependencies
         run: poetry install
 
-      - name: 🎨 Check code formatting with black
+      - name: 🎨 Check formatting with black
         run: poetry run black --check src/
 
       - name: 🔍 Lint with flake8
         run: poetry run flake8 src/
 
-      - name: 🔠 Check typing with mypy
+      - name: 🔠 Type check with mypy
         run: poetry run mypy src/
 
       - name: 🔀 Check import order with isort
