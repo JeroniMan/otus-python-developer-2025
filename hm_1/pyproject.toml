@@ -2,9 +2,6 @@
 name = "hm_1"
 description = "A simple log analyzer"
 authors = ["German Kovalev <your.email@example.com>"]
-packages = [
-  { include = "log_analyzer", from = "src" }
-]
 version = "0.1.0"
 readme = "README.md"
 package-mode = true
