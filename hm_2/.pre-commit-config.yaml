@@ -3,4 +3,4 @@ repos:
     rev: v0.991
     hooks:
       - id: mypy
-        files: ^hm_2/.*  # This will apply the `black` hook only to files inside the `hm_2/` folder
+        files: ^hm_2/.*  # This will apply the `mypy` hook only to files inside the `hm_2/` folder
