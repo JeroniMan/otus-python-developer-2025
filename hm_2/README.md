@@ -2,6 +2,9 @@
 
 This repository contains solutions for the **Python Type Challenges** as part of the course/homework. The challenges involve working with Python's typing system to ensure correctness and proper type-checking in code.
 
+<img width="224" alt="Screenshot 2025-04-14 at 23 02 19" src="https://github.com/user-attachments/assets/389f343e-debe-44f3-84e3-3b995298730f" />
+<img width="220" alt="Screenshot 2025-04-14 at 23 02 49" src="https://github.com/user-attachments/assets/97a28df6-dc70-493f-92a9-cbae246883ec" />
+
 
 ## Project Overview
 
