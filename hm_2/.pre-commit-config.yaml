@@ -1,0 +1,6 @@
+repos:
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v0.991
+    hooks:
+      - id: mypy
+        files: ^hm_2/.*  # This will apply the `mypy` hook only to files inside the `hm_2/` folder
