@@ -1010,6 +1010,7 @@ dependencies = [
     { name = "pandas" },
     { name = "prometheus-client" },
     { name = "pyarrow" },
+    { name = "pytest" },
     { name = "python-dotenv" },
     { name = "requests" },
 ]
@@ -1035,6 +1036,7 @@ requires-dist = [
     { name = "pandas", specifier = ">=2.2.3" },
     { name = "prometheus-client", specifier = ">=0.21.1" },
     { name = "pyarrow", specifier = ">=19.0.1" },
+    { name = "pytest", specifier = ">=8.4.1" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "requests", specifier = ">=2.32.3" },
 ]
