@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 # Функция для получения клиента GCS
 def get_gcs_client():
-    if not os.path.exists(GCP_SERVICE_ACCOUNT_JSON):
+    if GCP_SERVICE_ACCOUNT_JSON is not None and not os.path.exists(GCP_SERVICE_ACCOUNT_JSON):
         raise FileNotFoundError(f"Service account JSON file not found: {GCP_SERVICE_ACCOUNT_JSON}")
 
     credentials = service_account.Credentials.from_service_account_file(GCP_SERVICE_ACCOUNT_JSON)
@@ -156,7 +156,7 @@ def upload_json_to_local(bucket_name: str, blob_name: str, data: dict | list) ->
 
         # Write JSON with pretty formatting
         with open(blob_name, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+            json.dumps(data, f, ensure_ascii=False, indent=2)
 
         logging.info(f"[Local Save] Successfully saved JSON to {blob_name}")
         return True
@@ -271,7 +271,7 @@ def save_worker_state(state_dir, worker_id, slot, worker_type="collector"):
     try:
         path = os.path.join(state_dir, f"worker_{worker_type}_{worker_id}.json")
         with open(path, "w") as f:
-            json.dump({"worker_type": worker_type, "worker_id": worker_id, "last_slot": slot}, f)
+            json.dumps({"worker_type": worker_type, "worker_id": worker_id, "last_slot": slot}, f)
         logging.info(f"[State] Saved worker {worker_id} state to {path}")
     except Exception as e:
         logging.error(f"[State] Failed to save worker {worker_id} state: {e}")
@@ -283,7 +283,7 @@ def load_worker_state(state_dir, worker_id, default_slot, worker_type="collector
     if os.path.exists(path):
         try:
             with open(path) as f:
-                return json.load(f).get("last_slot", default_slot)
+                return json.loads(f).get("last_slot", default_slot)
         except Exception as e:
             logging.error(f"[State] Failed to load worker {worker_id} state: {e}")
             return default_slot

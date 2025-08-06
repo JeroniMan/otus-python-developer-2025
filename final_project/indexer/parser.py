@@ -6,7 +6,7 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Any
 
 import orjson as json
 from dotenv import load_dotenv
@@ -65,7 +65,7 @@ class ParseQueueManager:
 
         # Statistics
         self.stats_lock = threading.Lock()
-        self.worker_stats = {}
+        self.worker_stats: Dict[int, Dict[str, Any]] = {}
 
         # State management
         self.state_file = "parser_queue_state.json"

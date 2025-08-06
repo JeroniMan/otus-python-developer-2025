@@ -4,7 +4,7 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timezone
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Set
 import pandas as pd
 from dotenv import load_dotenv
 from indexer.schema import create_block_schema, create_rewards_schema, create_transaction_schema
@@ -60,7 +60,7 @@ class Validator:
         self.temp_dir = temp_dir
 
         # Track processed files
-        self.processed_files = set()
+        self.processed_files: Set[str] = set()
         self.load_processed_files()
 
     @staticmethod

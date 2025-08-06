@@ -7,7 +7,7 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Any
 import requests
 from dotenv import load_dotenv
 from google.cloud import storage
@@ -76,7 +76,7 @@ class PersistentSlotQueueManager:
 
         # Statistics
         self.stats_lock = threading.Lock()
-        self.worker_stats = {}  # worker_id -> {processed: int, errors: int}
+        self.worker_stats: Dict[int, Dict[str, Any]] = {}  # worker_id -> {processed: int, errors: int}
 
         # Control flags
         self.running = True
@@ -153,7 +153,7 @@ class PersistentSlotQueueManager:
 
     def get_slot_batch(self, worker_id: int, batch_size: int, timeout: float = 1.0) -> List[SlotTask]:
         """Get a batch of slots for a worker"""
-        batch = []
+        batch: List[SlotTask] = []
         deadline = time.time() + timeout
 
         while len(batch) < batch_size and time.time() < deadline:
@@ -555,8 +555,8 @@ class SolanaCollector:
     def worker(self, worker_id: int):
         """Updated worker with batch fetching from queue"""
         logger.info(f"Worker {worker_id} starting")
-        batch = []
-        batch_slots = []
+        batch: List[SlotTask] = []
+        batch_slots: List[int] = []
 
         while self.running:
             try:
