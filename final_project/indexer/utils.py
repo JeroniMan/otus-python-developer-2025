@@ -302,11 +302,11 @@ def _parse_worker_id(filename: str) -> Optional[int]:
 
 def get_collection_state() -> Tuple[int, int, int]:
     """
-    On startup/restart:
-    1. List all worker state files in GCS.
-    2. Delete state files for obsolete workers.
-    3. Compute min_slot across valid workers and update start_slot.
-    4. Set initial_slots for each worker to start_slot + worker_id.
+    Get the current collection state based on worker state files.
+    Returns (progress, base_slot, min_slot) where:
+    - progress: minimum last_uploaded_slot across all workers
+    - base_slot: the slot from which collection started
+    - min_slot: minimum last_uploaded_slot (same as progress)
     """
     logger.info("Start getting collection state...")
 
@@ -323,9 +323,8 @@ def get_collection_state() -> Tuple[int, int, int]:
     else:
         _storage_client = storage.Client()
 
-    last_slots: List[int] = []
-    progresses: Dict[int, int] = {}
-    base_slots: Dict[int, int] = {}
+    last_uploaded_slots: List[int] = []
+    timestamps: Dict[int, int] = {}
     bucket = _storage_client.bucket(GCS_STATE_BUCKET_NAME)
 
     # Iterate state files
@@ -334,19 +333,33 @@ def get_collection_state() -> Tuple[int, int, int]:
         if wid is None:
             continue
 
-        state = download_json_from_gcs(GCS_STATE_BUCKET_NAME, blob.name, default={"next_slot": 0})
-        slot = state.get("next_slot", 0)
-        logger.debug("Worker %d previous next_slot=%d", wid, slot)
-        last_slots.append(slot)
-        progresses[slot] = state.get("progress", 0 + wid)
-        base_slots[slot] = state.get("base_slot", 0 + wid)
-    if last_slots:
-        min_slot = base_slots[min(last_slots)]
-        progress = progresses[min(last_slots)]
-        base_slot = base_slots[min(last_slots)]
-        return (progress, base_slot, min_slot)
+        state = download_json_from_gcs(GCS_STATE_BUCKET_NAME, blob.name, default={})
+        last_uploaded_slot = state.get("last_uploaded_slot", 0)
+        timestamp = state.get("timestamp", 0)
+
+        logger.debug("Worker %d last_uploaded_slot=%d, timestamp=%d", wid, last_uploaded_slot, timestamp)
+
+        if last_uploaded_slot > 0:  # Only consider workers that have processed slots
+            last_uploaded_slots.append(last_uploaded_slot)
+            timestamps[last_uploaded_slot] = timestamp
+
+    if last_uploaded_slots:
+        # Progress is the minimum slot across all workers (the slowest worker)
+        min_slot = min(last_uploaded_slots)
+        max_slot = max(last_uploaded_slots)
+
+        # Base slot is typically from START_SLOT env variable
+        base_slot = int(os.getenv("START_SLOT", "0"))
+
+        logger.info(f"Collection state: min_slot={min_slot}, max_slot={max_slot}, base_slot={base_slot}")
+
+        # Return (progress, base_slot, min_slot)
+        # progress and min_slot are the same - the minimum last uploaded slot
+        return (min_slot, base_slot, min_slot)
     else:
-        return (0, 0, 0)
+        logger.warning("No worker state files found or no slots processed yet")
+        base_slot = int(os.getenv("START_SLOT", "0"))
+        return (base_slot, base_slot, base_slot)
 
 
 def collect_gaps():
