@@ -1,0 +1,54 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Virtual environment (if not using Poetry's in-project venv)
+.env
+.venv
+
+# Installer logs
+pip-log.txt
+log
+log.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# Pytest
+.pytest_cache/
+
+# mypy
+.mypy_cache/
+
+# VSCode / JetBrains
+.vscode/
+.idea/*
+
+# OS
+.DS_Store
+
+# Local poetry files
+.lock
+credentials/service-account.json
+
+# temp files
+/list
+/raw_data
+/state
+/credentials
+/activate
