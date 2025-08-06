@@ -1,8 +1,10 @@
 import logging
 import os
 import time
+
 from dotenv import load_dotenv
 from prometheus_client import Gauge, start_http_server
+
 from indexer.utils import calculate_files_queue, collect_gaps, get_collection_state, get_worker_gaps_count
 
 # Configure logging

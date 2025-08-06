@@ -7,7 +7,8 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Set, Any
+from typing import Any, Dict, List, Optional, Set
+
 import requests
 from dotenv import load_dotenv
 from google.cloud import storage
@@ -264,7 +265,7 @@ class PersistentSlotQueueManager:
             "max_completed": max_completed,
             "gaps": len(self.get_gaps()),
             "worker_stats": dict(self.worker_stats),
-            "total_processed": total_processed
+            "total_processed": total_processed,
         }
 
     def save_state(self, force: bool = False):

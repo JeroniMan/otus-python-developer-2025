@@ -9,8 +9,8 @@ Solana blockchain indexer with three main components:
 __version__ = "0.1.0"
 
 # Expose main classes for easier imports
-from indexer.collector import SolanaCollector, PersistentSlotQueueManager
-from indexer.parser import SolanaParser, ParseQueueManager
+from indexer.collector import PersistentSlotQueueManager, SolanaCollector
+from indexer.parser import ParseQueueManager, SolanaParser
 from indexer.validator import Validator
 
 __all__ = [
