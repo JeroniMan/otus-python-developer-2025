@@ -19,6 +19,7 @@ dependencies = [
     "prometheus-client>=0.21.1",
     "pyarrow>=19.0.1",
     "requests>=2.32.3",
+    "pytest>=8.4.1",
 ]
 
 [tool.uv]

@@ -56,7 +56,7 @@ make run
 ## 🧪 Run Tests
 
 ```bash
-make test
+make tests
 ```
 
 ---

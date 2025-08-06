@@ -45,7 +45,7 @@ async def async_function2() -> str:
 
 async def main():
     await queue.put(42)
-    await queue2.put("test")
+    await queue2.put("tests")
     await run_async(async_function())
     # await run_async(1) # expect-type-error
     # await run_async(async_function2()) # expect-type-error

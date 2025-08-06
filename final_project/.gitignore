@@ -17,7 +17,7 @@ pip-log.txt
 log
 log.txt
 
-# Unit test / coverage reports
+# Unit tests / coverage reports
 htmlcov/
 .tox/
 .nox/

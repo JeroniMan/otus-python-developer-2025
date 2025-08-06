@@ -361,22 +361,35 @@ def get_collection_state() -> Tuple[int,int,int]:
     else:
         return (0, 0, 0)
 
+
 def collect_gaps():
+    """
+    Collect gap information from worker files.
+    Returns empty list if no gaps found.
+    """
     file_mask = re.compile(
-        r"raw_data/slot_"
-        r"(?P<iteration>\d+)_(?P<workers>\d+)_"
-        r"(?P<first_slot>\d+)_(?P<first_ts>\d+)_"
-        r"(?P<last_slot>\d+)_(?P<last_ts>\d+)_"
-        r"(?P<file_id>\d+)\.json\.gzip$"
+        r"raw_data/slots_"
+        r"(?P<first_slot>\d+)_"
+        r"(?P<last_slot>\d+)_"
+        r"(?P<first_time>\d+)_"
+        r"(?P<last_time>\d+)_"
+        r"(?P<timestamp>\d+)_"
+        r"(?P<worker_id>\d+)"
+        r"\.json(\.gzip)?$"
     )
 
     gcs_bucket_name: str = os.getenv('GCS_BUCKET_NAME', '')
     worker_count = int(os.getenv('WORKER_COUNT', 0))
+
+    if worker_count == 0:
+        logger.warning("WORKER_COUNT is 0, cannot calculate gaps")
+        return []
+
     client = get_gcs_client()
     bucket = client.bucket(gcs_bucket_name)
     raw_data_folder = 'raw_data/'
 
-    # Маска для файлов, которые обрабатываются этим воркером
+    # Список файлов
     blobs = list(bucket.list_blobs(prefix=raw_data_folder))
 
     # Extract file details using the regex pattern
@@ -387,97 +400,97 @@ def collect_gaps():
         if match:
             details = {
                 "name": blob.name,
-                "iteration": int(match.group("iteration")),
                 "first_slot": int(match.group("first_slot")),
                 "last_slot": int(match.group("last_slot")),
-                "file_id": int(match.group("file_id")),
-                "workers": int(match.group("workers")),
-                "index_file": (int(match.group("first_slot"))-5)%int(match.group("workers"))
+                "timestamp": int(match.group("timestamp")),
+                "worker_id": int(match.group("worker_id"))
             }
             file_details.append(details)
 
-    file_details.sort(key=lambda x: x["file_id"])
+    if not file_details:
+        logger.info("No files found for gap analysis")
+        return []
 
-    # Identify and print each missing file individually
-    missing_files = []
-    last_iteration = None
+    # Сортируем по first_slot чтобы найти пропуски
+    file_details.sort(key=lambda x: x["first_slot"])
 
-    # Group files by iteration and worker
+    # Ищем пропуски в слотах
+    gaps = []
     for i in range(1, len(file_details)):
-        previous_file_id = file_details[i - 1]["file_id"]
-        current_file_id = file_details[i]["file_id"]
+        prev_last = file_details[i - 1]["last_slot"]
+        curr_first = file_details[i]["first_slot"]
 
-        # Check if there's a gap between the file IDs
-        if current_file_id != previous_file_id + 1:
-            # List the missing files one by one
-            for missing_id in range(1, current_file_id-previous_file_id):
-                index = file_details[i - 1]["index_file"] + missing_id
-                file_id = file_details[i - 1]["file_id"] + missing_id
-                if index <= worker_count-1:
-                    missing_files.append({
-                        "file_id": file_id,
-                        "iteration": file_details[i - 1]["iteration"],
-                        "first_slot": file_details[i - 1]["first_slot"] + missing_id,
-                        "index": (index+1)%worker_count,
-                        "type": "gap"
-                    })
-                else:
-                    missing_files.append({
-                        "file_id": file_id,
-                        "iteration": file_details[i - 1]["iteration"] + (index+1)//worker_count,
-                        "first_slot": file_details[i - 1]["last_slot"] + missing_id,
-                        "index": (index+1)%worker_count,
-                        "type": "gap"
-                    })
+        # Если есть разрыв между последним слотом предыдущего файла и первым слотом текущего
+        if curr_first > prev_last + 1:
+            gap_size = curr_first - prev_last - 1
+            gaps.append({
+                "start": prev_last + 1,
+                "end": curr_first - 1,
+                "size": gap_size,
+                "after_file": file_details[i - 1]["name"],
+                "before_file": file_details[i]["name"]
+            })
+            logger.warning(f"Found gap of {gap_size} slots: {prev_last + 1} to {curr_first - 1}")
 
-    for gaps in range(missing_files[-1].get('index'), worker_count-1):
-        missing_files.append({
-            "file_id": missing_files[-1].get('file_id') + 1,
-            "iteration": missing_files[-1].get("iteration"),
-            "first_slot": missing_files[-1].get("first_slot") + 1,
-            "index": missing_files[-1].get('index') + 1,
-            "type": "extra"
-        })
-
-    iteration = missing_files[-1].get("iteration") + 1
-    slot = missing_files[-1].get("first_slot") + (worker_count*10)-31
-    for extra in range(0, worker_count):
-        missing_files.append({
-            "file_id": missing_files[-1].get('file_id') + 1,
-            "iteration": iteration,
-            "first_slot": slot+extra,
-            "index": extra,
-            "type": "extra"
-        })
-
-    return missing_files
+    return gaps
 
 
 def calculate_files_queue(raw_data_folder):
+    """
+    Calculate the number of files in queue and the minimum iteration progress.
+    Returns tuple (queue_size, min_progress) or (0, 0) if no files found.
+    """
+    # Правильный паттерн для файлов
     file_mask = re.compile(
         r".*/"  # Любое количество символов, включая папки, до слэша
-        r"*slot_"  # обязательное наличие "slot_"
-        r"(?P<iteration>\d+)_(?P<workers>\d+)_"
-        r"(?P<first_slot>\d+)_(?P<first_ts>\d+)_"
-        r"(?P<last_slot>\d+)_(?P<last_ts>\d+)_"
-        r"(?P<file_id>\d+)"
-        r"\.(?P<file_extension>json|parquet)\.gzip$"  # расширение файла (json или parquet) и обязательное .gzip
+        r"slots_"  # обязательное наличие "slots_"
+        r"(?P<first_slot>\d+)_"
+        r"(?P<last_slot>\d+)_"
+        r"(?P<first_time>\d+)_"
+        r"(?P<last_time>\d+)_"
+        r"(?P<timestamp>\d+)_"
+        r"(?P<worker_id>\d+)"
+        r"\.json(\.gzip)?$"  # расширение файла .json или .json.gzip
     )
 
     gcs_bucket_name: str = os.getenv('GCS_BUCKET_NAME', '')
     client = get_gcs_client()
     bucket = client.bucket(gcs_bucket_name)
 
-    # Маска для файлов, которые обрабатываются этим воркером
+    # Список файлов в папке
     blobs = list(bucket.list_blobs(prefix=raw_data_folder))
 
-    details = []
+    # Для processed_data/ нужно учесть префикс entity (blocks_, rewards_, transactions_)
+    if 'processed_data' in raw_data_folder:
+        file_mask = re.compile(
+            r".*/"  # Любое количество символов, включая папки, до слэша
+            r"(?:blocks_|rewards_|transactions_)"  # префикс entity
+            r"slots_"
+            r"(?P<first_slot>\d+)_"
+            r"(?P<last_slot>\d+)_"
+            r"(?P<first_time>\d+)_"
+            r"(?P<last_time>\d+)_"
+            r"(?P<timestamp>\d+)_"
+            r"(?P<worker_id>\d+)"
+            r"\.parquet(\.gzip)?$"  # расширение файла .parquet или .parquet.gzip
+        )
+
+    timestamps = []
     for blob in blobs:
         match = file_mask.match(blob.name)
         if match:
-            details.append(int(match.group("iteration")))
+            # Используем timestamp из имени файла как индикатор прогресса
+            timestamps.append(int(match.group("timestamp")))
+        else:
+            logger.debug(f"File {blob.name} doesn't match pattern")
 
-    return (len(blobs), min(details))
+    # Возвращаем безопасные значения при пустом списке
+    if not timestamps:
+        logger.warning(f"No files found in {raw_data_folder} matching the expected pattern")
+        return (0, 0)
+
+    # Минимальный timestamp = самый старый файл
+    return (len(blobs), min(timestamps))
 
 
 # print(collect_gaps())
@@ -565,3 +578,26 @@ def clean_dataframe_for_parquet(df: pd.DataFrame, entity: str) -> pd.DataFrame:
                 df[col] = df[col].fillna('').astype(str)
 
     return df
+
+
+def get_worker_gaps_count():
+    """
+    Get count of gaps per worker.
+    Returns dict {worker_id: gap_count}
+    """
+    gaps = collect_gaps()
+    worker_gaps = {}
+
+    # Инициализируем счетчики для всех воркеров
+    worker_count = int(os.getenv('WORKER_COUNT', 32))
+    for i in range(worker_count):
+        worker_gaps[i] = 0
+
+    # Подсчитываем пропуски
+    for gap in gaps:
+        # Определяем какие воркеры отвечали за эти слоты
+        for slot in range(gap["start"], gap["end"] + 1):
+            worker_id = slot % worker_count
+            worker_gaps[worker_id] += 1
+
+    return worker_gaps
