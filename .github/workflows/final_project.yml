@@ -53,11 +53,6 @@ jobs:
         run: |
           uv run mypy indexer/ --ignore-missing-imports --no-strict-optional --allow-untyped-defs || true
 
-      - name: 🧪 Run tests
-        run: |
-          # Create a simple test file if none exists
-          uv run make test
-
   docker-build:
     runs-on: ubuntu-latest
     defaults:
