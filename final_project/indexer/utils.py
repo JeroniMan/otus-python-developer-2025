@@ -1,26 +1,25 @@
-import orjson as json
-import os
-import time
+import gzip
 import logging
-from google.cloud import storage
-from google.oauth2 import service_account
+import os
+import re
+import time
+from io import BytesIO
+from typing import Dict, List, Optional, Tuple, Iterable
+
+import gcsfs
+import orjson as json
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
-from io import BytesIO
-import gcsfs
-import gzip
-import re
-from typing import Any, Dict, List, Optional, Tuple
-
-from config import GCS_BUCKET_NAME, GCS_STATE_BUCKET_NAME, GCP_SERVICE_ACCOUNT_JSON
+from google.cloud import storage
+from google.oauth2 import service_account
+import numpy as np
+from indexer.config import GCP_SERVICE_ACCOUNT_JSON, GCS_STATE_BUCKET_NAME
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s - %(message)s")
 logger = logging.getLogger(__name__)
+
 
 # Функция для получения клиента GCS
 def get_gcs_client():
@@ -39,30 +38,22 @@ def retry_upload_parquet_to_gcs(bucket_name: str, blob_name: str, data: list[dic
             logging.info(f"[Retry] Successfully uploaded {blob_name} on attempt {attempt + 1}")
             return True
         except Exception as e:
-            wait_time = 2 ** attempt
+            wait_time = 2**attempt
             logging.warning(f"[Retry] Failed to upload {blob_name} (attempt {attempt + 1}/{retries}): {e}")
             time.sleep(wait_time)
     logging.error(f"[Retry] Failed to upload {blob_name} after {retries} attempts")
     return False
 
-import re
-import logging
-import pyarrow as pa
-import pyarrow.parquet as pq
-import gcsfs
-from typing import Iterable
-import numpy as np
-
 
 def upload_parquet_to_gcs(
-        bucket_name: str,
-        blob_name: str,
-        data: Iterable[dict],
-        schema: pa.Schema,
-        chunk_size: int = 100_000,
-        compression: str = "ZSTD",
-        gcs_project: str = 'p2p-data-warehouse',
-        threads: int = 4,
+    bucket_name: str,
+    blob_name: str,
+    data: Iterable[dict],
+    schema: pa.Schema,
+    chunk_size: int = 100_000,
+    compression: str = "ZSTD",
+    gcs_project: str = "p2p-data-warehouse",
+    threads: int = 4,
 ) -> bool:
     """
     Stream a list-of-dicts into Parquet-on-GCS via PyArrow only.
@@ -97,7 +88,7 @@ def upload_parquet_to_gcs(
             compression=codec or "NONE",
             use_dictionary=True,
             write_statistics=True,
-            **({"compression_level": 3, "compression_threads": threads} if codec == "ZSTD" else {})
+            **({"compression_level": 3, "compression_threads": threads} if codec == "ZSTD" else {}),
         )
 
         # Buffer up dicts into PyArrow RecordBatches
@@ -148,6 +139,7 @@ def upload_parquet_to_gcs(
         logging.exception(f"[Exception] Failed to upload {blob_name}")
         return False
 
+
 def upload_json_to_local(bucket_name: str, blob_name: str, data: dict | list) -> bool:
     """
     Saves a Python dict or list as a JSON file on the local filesystem.
@@ -163,7 +155,7 @@ def upload_json_to_local(bucket_name: str, blob_name: str, data: dict | list) ->
             os.makedirs(directory, exist_ok=True)
 
         # Write JSON with pretty formatting
-        with open(blob_name, 'w', encoding='utf-8') as f:
+        with open(blob_name, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
         logging.info(f"[Local Save] Successfully saved JSON to {blob_name}")
@@ -171,6 +163,7 @@ def upload_json_to_local(bucket_name: str, blob_name: str, data: dict | list) ->
     except Exception as e:
         logging.error(f"[Exception] Failed to save JSON to {blob_name} ({e})")
         return False
+
 
 # Загрузка JSON в GCS
 def upload_json_to_gcs(bucket_name: str, blob_name: str, data: dict | list, compress=False) -> bool:
@@ -183,14 +176,14 @@ def upload_json_to_gcs(bucket_name: str, blob_name: str, data: dict | list, comp
 
         # Ensure we have bytes for compression
         if isinstance(json_data, str):
-            json_bytes = json_data.encode('utf-8')
+            json_bytes = json_data.encode("utf-8")
         else:
             json_bytes = json_data  # Already bytes (orjson)
 
         if compress:
-            blob = bucket.blob(blob_name + '.gzip')
+            blob = bucket.blob(blob_name + ".gzip")
             with BytesIO() as byte_stream:
-                with gzip.GzipFile(fileobj=byte_stream, mode='wb') as f:
+                with gzip.GzipFile(fileobj=byte_stream, mode="wb") as f:
                     f.write(json_bytes)
                 byte_stream.seek(0)
 
@@ -201,21 +194,18 @@ def upload_json_to_gcs(bucket_name: str, blob_name: str, data: dict | list, comp
             timeout = 300
             # upload_from_string expects a string
             if isinstance(json_data, bytes):
-                json_str = json_data.decode('utf-8')
+                json_str = json_data.decode("utf-8")
             else:
                 json_str = json_data
 
-            blob.upload_from_string(
-                json_str,
-                content_type="application/json",
-                timeout=timeout
-            )
+            blob.upload_from_string(json_str, content_type="application/json", timeout=timeout)
 
         logging.info(f"[Upload] Successfully uploaded {blob_name}")
         return True
     except Exception as e:
         logging.error(f"[Exception] Failed to upload {blob_name} ({e})")
         return False
+
 
 def delete_files_from_gcs(bucket_name: str, progress_threshold: int) -> bool:
     try:
@@ -277,7 +267,7 @@ def download_json_from_gcs(bucket_name: str, blob_name: str, default: dict = Non
 
 
 # Сохранение состояния воркера
-def save_worker_state(state_dir, worker_id, slot, worker_type='collector'):
+def save_worker_state(state_dir, worker_id, slot, worker_type="collector"):
     try:
         path = os.path.join(state_dir, f"worker_{worker_type}_{worker_id}.json")
         with open(path, "w") as f:
@@ -288,7 +278,7 @@ def save_worker_state(state_dir, worker_id, slot, worker_type='collector'):
 
 
 # Загрузка состояния воркера
-def load_worker_state(state_dir, worker_id, default_slot, worker_type='collector'):
+def load_worker_state(state_dir, worker_id, default_slot, worker_type="collector"):
     path = os.path.join(state_dir, f"worker_{worker_type}_{worker_id}.json")
     if os.path.exists(path):
         try:
@@ -310,7 +300,7 @@ def _parse_worker_id(filename: str) -> Optional[int]:
     return int(match.group(1)) if match else None
 
 
-def get_collection_state() -> Tuple[int,int,int]:
+def get_collection_state() -> Tuple[int, int, int]:
     """
     On startup/restart:
     1. List all worker state files in GCS.
@@ -324,7 +314,7 @@ def get_collection_state() -> Tuple[int,int,int]:
     if creds_path:
         try:
             creds = service_account.Credentials.from_service_account_file(creds_path)
-            project = os.getenv('GCP_PROJECT') or None
+            project = os.getenv("GCP_PROJECT") or None
             _storage_client = storage.Client(credentials=creds, project=project)
             logger.info("Initialized GCS client with service account %s", creds_path)
         except Exception as e:
@@ -344,10 +334,7 @@ def get_collection_state() -> Tuple[int,int,int]:
         if wid is None:
             continue
 
-        state = download_json_from_gcs(
-            GCS_STATE_BUCKET_NAME, blob.name,
-            default={"next_slot": 0}
-        )
+        state = download_json_from_gcs(GCS_STATE_BUCKET_NAME, blob.name, default={"next_slot": 0})
         slot = state.get("next_slot", 0)
         logger.debug("Worker %d previous next_slot=%d", wid, slot)
         last_slots.append(slot)
@@ -378,8 +365,8 @@ def collect_gaps():
         r"\.json(\.gzip)?$"
     )
 
-    gcs_bucket_name: str = os.getenv('GCS_BUCKET_NAME', '')
-    worker_count = int(os.getenv('WORKER_COUNT', 0))
+    gcs_bucket_name: str = os.getenv("GCS_BUCKET_NAME", "")
+    worker_count = int(os.getenv("WORKER_COUNT", 0))
 
     if worker_count == 0:
         logger.warning("WORKER_COUNT is 0, cannot calculate gaps")
@@ -387,7 +374,7 @@ def collect_gaps():
 
     client = get_gcs_client()
     bucket = client.bucket(gcs_bucket_name)
-    raw_data_folder = 'raw_data/'
+    raw_data_folder = "raw_data/"
 
     # Список файлов
     blobs = list(bucket.list_blobs(prefix=raw_data_folder))
@@ -403,7 +390,7 @@ def collect_gaps():
                 "first_slot": int(match.group("first_slot")),
                 "last_slot": int(match.group("last_slot")),
                 "timestamp": int(match.group("timestamp")),
-                "worker_id": int(match.group("worker_id"))
+                "worker_id": int(match.group("worker_id")),
             }
             file_details.append(details)
 
@@ -423,13 +410,15 @@ def collect_gaps():
         # Если есть разрыв между последним слотом предыдущего файла и первым слотом текущего
         if curr_first > prev_last + 1:
             gap_size = curr_first - prev_last - 1
-            gaps.append({
-                "start": prev_last + 1,
-                "end": curr_first - 1,
-                "size": gap_size,
-                "after_file": file_details[i - 1]["name"],
-                "before_file": file_details[i]["name"]
-            })
+            gaps.append(
+                {
+                    "start": prev_last + 1,
+                    "end": curr_first - 1,
+                    "size": gap_size,
+                    "after_file": file_details[i - 1]["name"],
+                    "before_file": file_details[i]["name"],
+                }
+            )
             logger.warning(f"Found gap of {gap_size} slots: {prev_last + 1} to {curr_first - 1}")
 
     return gaps
@@ -453,7 +442,7 @@ def calculate_files_queue(raw_data_folder):
         r"\.json(\.gzip)?$"  # расширение файла .json или .json.gzip
     )
 
-    gcs_bucket_name: str = os.getenv('GCS_BUCKET_NAME', '')
+    gcs_bucket_name: str = os.getenv("GCS_BUCKET_NAME", "")
     client = get_gcs_client()
     bucket = client.bucket(gcs_bucket_name)
 
@@ -461,7 +450,7 @@ def calculate_files_queue(raw_data_folder):
     blobs = list(bucket.list_blobs(prefix=raw_data_folder))
 
     # Для processed_data/ нужно учесть префикс entity (blocks_, rewards_, transactions_)
-    if 'processed_data' in raw_data_folder:
+    if "processed_data" in raw_data_folder:
         file_mask = re.compile(
             r".*/"  # Любое количество символов, включая папки, до слэша
             r"(?:blocks_|rewards_|transactions_)"  # префикс entity
@@ -510,7 +499,7 @@ def get_slot_state() -> int:
     if creds_path:
         try:
             creds = service_account.Credentials.from_service_account_file(creds_path)
-            project = os.getenv('GCP_PROJECT') or None
+            project = os.getenv("GCP_PROJECT") or None
             _storage_client = storage.Client(credentials=creds, project=project)
             logger.info("Initialized GCS client with service account %s", creds_path)
         except Exception as e:
@@ -528,10 +517,7 @@ def get_slot_state() -> int:
         if wid is None:
             continue
 
-        state = download_json_from_gcs(
-            GCS_STATE_BUCKET_NAME, blob.name,
-            default={"last_uploaded_slot": 0}
-        )
+        state = download_json_from_gcs(GCS_STATE_BUCKET_NAME, blob.name, default={"last_uploaded_slot": 0})
         slot = state.get("last_uploaded_slot", 0)
         logger.debug("Worker %d previous last_uploaded_slot=%d", wid, slot)
         last_slots.append(slot)
@@ -548,34 +534,34 @@ def clean_dataframe_for_parquet(df: pd.DataFrame, entity: str) -> pd.DataFrame:
 
     # Define column types for each entity
     entity_schemas = {
-        'rewards': {
-            'numeric': ['slot', 'lamports', 'postBalance', 'commission', 'collected_at', 'blockTime', 'block_dt'],
-            'string': ['pubkey', 'rewardType']
+        "rewards": {
+            "numeric": ["slot", "lamports", "postBalance", "commission", "collected_at", "blockTime", "block_dt"],
+            "string": ["pubkey", "rewardType"],
         },
-        'blocks': {
-            'numeric': ['slot', 'parentSlot', 'blockHeight', 'blockTime', 'block_dt', 'code', 'collected_at'],
-            'string': ['blockhash', 'previousBlockhash', 'status', 'message']
+        "blocks": {
+            "numeric": ["slot", "parentSlot", "blockHeight", "blockTime", "block_dt", "code", "collected_at"],
+            "string": ["blockhash", "previousBlockhash", "status", "message"],
         },
-        'transactions': {
-            'numeric': ['slot', 'blockTime', 'block_dt', 'transaction_index', 'collected_at'],
-            'string': ['transaction_id', 'version']
-        }
+        "transactions": {
+            "numeric": ["slot", "blockTime", "block_dt", "transaction_index", "collected_at"],
+            "string": ["transaction_id", "version"],
+        },
     }
 
     if entity in entity_schemas:
         schema = entity_schemas[entity]
 
         # Fix numeric columns
-        for col in schema['numeric']:
+        for col in schema["numeric"]:
             if col in df.columns:
                 # Replace NaN with 0 and convert to int64
-                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype('int64')
+                df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype("int64")
 
         # Fix string columns
-        for col in schema['string']:
+        for col in schema["string"]:
             if col in df.columns:
                 # Replace NaN with empty string
-                df[col] = df[col].fillna('').astype(str)
+                df[col] = df[col].fillna("").astype(str)
 
     return df
 
@@ -589,7 +575,7 @@ def get_worker_gaps_count():
     worker_gaps = {}
 
     # Инициализируем счетчики для всех воркеров
-    worker_count = int(os.getenv('WORKER_COUNT', 32))
+    worker_count = int(os.getenv("WORKER_COUNT", 32))
     for i in range(worker_count):
         worker_gaps[i] = 0
 

@@ -1,34 +1,30 @@
-from prometheus_client import start_http_server, Counter, Gauge
-import time
 import logging
 import os
+import time
 from dotenv import load_dotenv
-from utils import get_collection_state, collect_gaps, calculate_files_queue, get_worker_gaps_count
-from itertools import groupby
+from prometheus_client import Gauge, start_http_server
+from indexer.utils import calculate_files_queue, collect_gaps, get_collection_state, get_worker_gaps_count
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
 
 # ваши метрики
-current_collector_progress = Gauge('collector_progress', 'current_collector_progress')
-current_collector_base_slot = Gauge('current_collector_base_slot', 'current_collector_base_slot')
-current_collector_min_slot = Gauge('current_collector_min_slot', 'current_collector_min_slot')
+current_collector_progress = Gauge("collector_progress", "current_collector_progress")
+current_collector_base_slot = Gauge("current_collector_base_slot", "current_collector_base_slot")
+current_collector_min_slot = Gauge("current_collector_min_slot", "current_collector_min_slot")
 
-raw_files_queue = Gauge('raw_files_queue', 'raw_files_queue')
-raw_min_progress = Gauge('raw_min_progress', 'raw_min_progress')
+raw_files_queue = Gauge("raw_files_queue", "raw_files_queue")
+raw_min_progress = Gauge("raw_min_progress", "raw_min_progress")
 
-processed_files_queue = Gauge('processed_files_queue', 'processed_files_queue')
-processed_min_progress = Gauge('processed_min_progress', 'processed_min_progress')
+processed_files_queue = Gauge("processed_files_queue", "processed_files_queue")
+processed_min_progress = Gauge("processed_min_progress", "processed_min_progress")
 
-worker_gaps = Gauge('worker_gaps', 'worker_gaps', ['worker_index'])
-total_gaps = Gauge('total_gaps', 'Total number of gaps found')
+worker_gaps = Gauge("worker_gaps", "worker_gaps", ["worker_index"])
+total_gaps = Gauge("total_gaps", "Total number of gaps found")
 
 
 def update_metrics():
@@ -49,7 +45,7 @@ def update_metrics():
 
     try:
         # Get file queues
-        raw_queue, min_raw_progress = calculate_files_queue('raw_data/')
+        raw_queue, min_raw_progress = calculate_files_queue("raw_data/")
         raw_files_queue.set(raw_queue)
         raw_min_progress.set(min_raw_progress)
         logger.info(f"Raw files: count={raw_queue}, oldest_timestamp={min_raw_progress}")
@@ -59,7 +55,7 @@ def update_metrics():
         raw_min_progress.set(0)
 
     try:
-        processed_queue, min_processed_progress = calculate_files_queue('processed_data/')
+        processed_queue, min_processed_progress = calculate_files_queue("processed_data/")
         processed_files_queue.set(processed_queue)
         processed_min_progress.set(min_processed_progress)
         logger.info(f"Processed files: count={processed_queue}, oldest_timestamp={min_processed_progress}")
@@ -86,7 +82,7 @@ def update_metrics():
         else:
             logger.info("No gaps found in data")
             # Reset all worker gap metrics to 0
-            worker_count = int(os.getenv('WORKER_COUNT', 32))
+            worker_count = int(os.getenv("WORKER_COUNT", 32))
             for i in range(worker_count):
                 worker_gaps.labels(worker_index=f"worker_{i}").set(0)
 
@@ -95,7 +91,7 @@ def update_metrics():
         total_gaps.set(0)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Запускаем HTTP-сервер, который отдаёт /metrics
     start_http_server(8000)
     print("Metrics available at http://0.0.0.0:8000/metrics")

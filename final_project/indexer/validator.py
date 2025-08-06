@@ -1,17 +1,14 @@
+import logging
 import os
 import re
 import time
-import logging
-from dotenv import load_dotenv
-from datetime import datetime, date, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Optional, Dict, Tuple
-import numpy as np
+from datetime import date, datetime, timezone
+from typing import Dict, List, Tuple
 import pandas as pd
-from google.cloud import storage
-
-from utils import get_gcs_client, upload_json_to_gcs, upload_parquet_to_gcs, download_json_from_gcs
-from schema import (create_block_schema, create_rewards_schema, create_transaction_schema)
+from dotenv import load_dotenv
+from indexer.schema import create_block_schema, create_rewards_schema, create_transaction_schema
+from indexer.utils import download_json_from_gcs, get_gcs_client, upload_json_to_gcs, upload_parquet_to_gcs
 
 # Load environment configs
 load_dotenv()
@@ -32,10 +29,7 @@ if not GCS_BUCKET_NAME:
 os.makedirs(STATE_DIR, exist_ok=True)
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s - %(message)s")
 
 
 class Validator:
@@ -53,15 +47,15 @@ class Validator:
     )
 
     def __init__(
-            self,
-            bucket_name: str = GCS_BUCKET_NAME,
-            src_prefix: str = SRC_PREFIX,
-            entity_workers: int = ENTITY_WORKERS,
-            temp_dir: str = STATE_DIR
+        self,
+        bucket_name: str = GCS_BUCKET_NAME,
+        src_prefix: str = SRC_PREFIX,
+        entity_workers: int = ENTITY_WORKERS,
+        temp_dir: str = STATE_DIR,
     ):
         self.client = get_gcs_client()
         self.bucket = self.client.bucket(bucket_name)
-        self.src_prefix = src_prefix.rstrip('/') + '/'
+        self.src_prefix = src_prefix.rstrip("/") + "/"
         self.entity_workers = entity_workers
         self.temp_dir = temp_dir
 
@@ -87,7 +81,7 @@ class Validator:
         if ts == 0:
             return "1970-01-01 00:00:00"
         dt = datetime.fromtimestamp(ts, tz=timezone.utc)
-        return dt.replace(minute=0, second=0, microsecond=0).strftime('%Y-%m-%d %H:00:00')
+        return dt.replace(minute=0, second=0, microsecond=0).strftime("%Y-%m-%d %H:00:00")
 
     def get_partition_info(self, slot: int, ts: int) -> Tuple[int, str, str]:
         """Get partition info (epoch, date, hour) for a slot/timestamp"""
@@ -100,11 +94,7 @@ class Validator:
         """Load list of already processed files from state"""
         if GCS_STATE_BUCKET_NAME:
             try:
-                state = download_json_from_gcs(
-                    GCS_STATE_BUCKET_NAME,
-                    "validator/processed_files.json",
-                    default={}
-                )
+                state = download_json_from_gcs(GCS_STATE_BUCKET_NAME, "validator/processed_files.json", default={})
                 self.processed_files = set(state.get("files", []))
                 logger.info(f"Loaded {len(self.processed_files)} processed files from state")
             except Exception as e:
@@ -117,13 +107,9 @@ class Validator:
                 state = {
                     "files": list(self.processed_files),
                     "count": len(self.processed_files),
-                    "last_updated": datetime.now(timezone.utc).isoformat()
+                    "last_updated": datetime.now(timezone.utc).isoformat(),
                 }
-                upload_json_to_gcs(
-                    GCS_STATE_BUCKET_NAME,
-                    "validator/processed_files.json",
-                    state
-                )
+                upload_json_to_gcs(GCS_STATE_BUCKET_NAME, "validator/processed_files.json", state)
             except Exception as e:
                 logger.error(f"Error saving processed files: {e}")
 
@@ -146,24 +132,24 @@ class Validator:
 
             # Extract metadata for sorting
             file_info = {
-                'blob': blob,
-                'entity': match.group('entity'),
-                'first_slot': int(match.group('first_slot')),
-                'last_slot': int(match.group('last_slot')),
-                'first_ts': int(match.group('first_time')),
-                'last_ts': int(match.group('last_time')),
-                'timestamp': int(match.group('timestamp')),
-                'worker_id': int(match.group('worker_id')),
+                "blob": blob,
+                "entity": match.group("entity"),
+                "first_slot": int(match.group("first_slot")),
+                "last_slot": int(match.group("last_slot")),
+                "first_ts": int(match.group("first_time")),
+                "last_ts": int(match.group("last_time")),
+                "timestamp": int(match.group("timestamp")),
+                "worker_id": int(match.group("worker_id")),
             }
 
             candidate_files.append(file_info)
 
         # Sort by timestamp (FIFO), then by worker_id and first_slot for deterministic ordering
-        candidate_files.sort(key=lambda x: (x['timestamp'], x['worker_id'], x['first_slot']))
+        candidate_files.sort(key=lambda x: (x["timestamp"], x["worker_id"], x["first_slot"]))
 
         if candidate_files:
-            oldest_ts = candidate_files[0]['timestamp']
-            newest_ts = candidate_files[-1]['timestamp']
+            oldest_ts = candidate_files[0]["timestamp"]
+            newest_ts = candidate_files[-1]["timestamp"]
             logger.info(f"Found {len(candidate_files)} new files to process (timestamps: {oldest_ts} to {newest_ts})")
         else:
             logger.info("No new files to process")
@@ -176,51 +162,51 @@ class Validator:
 
         # Define column types for each entity
         entity_schemas = {
-            'rewards': {
-                'numeric': ['slot', 'lamports', 'postBalance', 'commission', 'collected_at', 'blockTime', 'block_dt'],
-                'string': ['pubkey', 'rewardType']
+            "rewards": {
+                "numeric": ["slot", "lamports", "postBalance", "commission", "collected_at", "blockTime", "block_dt"],
+                "string": ["pubkey", "rewardType"],
             },
-            'blocks': {
-                'numeric': ['slot', 'parentSlot', 'blockHeight', 'blockTime', 'block_dt', 'code', 'collected_at'],
-                'string': ['blockhash', 'previousBlockhash', 'status', 'message']
+            "blocks": {
+                "numeric": ["slot", "parentSlot", "blockHeight", "blockTime", "block_dt", "code", "collected_at"],
+                "string": ["blockhash", "previousBlockhash", "status", "message"],
             },
-            'transactions': {
-                'numeric': ['slot', 'blockTime', 'block_dt', 'transaction_index', 'collected_at'],
-                'string': ['transaction_id', 'version']
-            }
+            "transactions": {
+                "numeric": ["slot", "blockTime", "block_dt", "transaction_index", "collected_at"],
+                "string": ["transaction_id", "version"],
+            },
         }
 
         if entity in entity_schemas:
             schema = entity_schemas[entity]
 
             # Fix numeric columns
-            for col in schema['numeric']:
+            for col in schema["numeric"]:
                 if col in df.columns:
                     # Replace NaN with 0 and convert to int64
-                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype('int64')
+                    df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype("int64")
 
             # Fix string columns
-            for col in schema['string']:
+            for col in schema["string"]:
                 if col in df.columns:
                     # Replace NaN with empty string
-                    df[col] = df[col].fillna('').astype(str)
+                    df[col] = df[col].fillna("").astype(str)
 
         # Handle any remaining object columns that might contain nested data
         for col in df.columns:
-            if df[col].dtype == 'object' and col not in entity_schemas.get(entity, {}).get('string', []):
+            if df[col].dtype == "object" and col not in entity_schemas.get(entity, {}).get("string", []):
                 # Convert to string representation
-                df[col] = df[col].apply(lambda x: str(x) if x is not None else '')
+                df[col] = df[col].apply(lambda x: str(x) if x is not None else "")
 
         return df
 
     def process_file(self, info: Dict):
         """Process a single file - either move or split"""
         try:
-            entity = info['entity']
+            entity = info["entity"]
 
             # Get partition info for first and last slot
-            first_partition = self.get_partition_info(info['first_slot'], info['first_ts'])
-            last_partition = self.get_partition_info(info['last_slot'], info['last_ts'])
+            first_partition = self.get_partition_info(info["first_slot"], info["first_ts"])
+            last_partition = self.get_partition_info(info["last_slot"], info["last_ts"])
 
             # Check if file spans single partition
             if first_partition == last_partition:
@@ -233,7 +219,7 @@ class Validator:
                 self._split_and_move_file(entity, info)
 
             # Mark as processed
-            self.processed_files.add(info['blob'].name)
+            self.processed_files.add(info["blob"].name)
 
         except Exception as e:
             logger.error(f"Error processing file {info['blob'].name}: {e}", exc_info=True)
@@ -242,7 +228,7 @@ class Validator:
     def _move_file_simple(self, entity: str, info: Dict, epoch: int, block_date: str, block_hour: str):
         """Move file to partition folder without processing"""
         creation_date = date.today().isoformat()
-        src_blob = info['blob']
+        src_blob = info["blob"]
         fname = os.path.basename(src_blob.name)
 
         # Build destination path
@@ -259,11 +245,11 @@ class Validator:
 
     def _split_and_move_file(self, entity: str, info: Dict):
         """Split file that spans multiple partitions"""
-        local_path = os.path.join(self.temp_dir, os.path.basename(info['blob'].name))
+        local_path = os.path.join(self.temp_dir, os.path.basename(info["blob"].name))
 
         try:
             # Download file
-            info['blob'].download_to_filename(local_path)
+            info["blob"].download_to_filename(local_path)
 
             # Read the parquet file
             df = pd.read_parquet(local_path)
@@ -274,8 +260,8 @@ class Validator:
 
             # Find column names
             cols = df.columns.tolist()
-            slot_col = next((c for c in cols if c.lower() == 'slot'), None)
-            time_col = next((c for c in cols if c.lower() in ['blocktime', 'block_time']), None)
+            slot_col = next((c for c in cols if c.lower() == "slot"), None)
+            time_col = next((c for c in cols if c.lower() in ["blocktime", "block_time"]), None)
 
             if not slot_col:
                 raise ValueError(f"Cannot find slot column in: {cols}")
@@ -283,28 +269,31 @@ class Validator:
                 raise ValueError(f"Cannot find time column in: {cols}")
 
             # Add partition columns
-            df['epoch'] = df[slot_col].apply(self.calculate_epoch)
+            df["epoch"] = df[slot_col].apply(self.calculate_epoch)
 
             # Handle time column
             if pd.api.types.is_datetime64_any_dtype(df[time_col]):
-                df['block_date'] = df[time_col].dt.date.astype(str)
-                df['block_hour'] = df[time_col].dt.floor('h').dt.strftime('%Y-%m-%d %H:00:00')
+                df["block_date"] = df[time_col].dt.date.astype(str)
+                df["block_hour"] = df[time_col].dt.floor("h").dt.strftime("%Y-%m-%d %H:00:00")
             else:
                 # Unix timestamp - handle zero values
-                df['block_date'] = pd.to_datetime(df[time_col], unit='s', errors='coerce').dt.date.astype(str)
-                df['block_hour'] = pd.to_datetime(df[time_col], unit='s', errors='coerce').dt.floor('h').dt.strftime(
-                    '%Y-%m-%d %H:00:00')
+                df["block_date"] = pd.to_datetime(df[time_col], unit="s", errors="coerce").dt.date.astype(str)
+                df["block_hour"] = (
+                    pd.to_datetime(df[time_col], unit="s", errors="coerce")
+                    .dt.floor("h")
+                    .dt.strftime("%Y-%m-%d %H:00:00")
+                )
 
                 # Replace NaT values with default
-                df['block_date'] = df['block_date'].fillna('1970-01-01')
-                df['block_hour'] = df['block_hour'].fillna('1970-01-01 00:00:00')
+                df["block_date"] = df["block_date"].fillna("1970-01-01")
+                df["block_hour"] = df["block_hour"].fillna("1970-01-01 00:00:00")
 
             # Get schema
-            if entity == 'blocks':
+            if entity == "blocks":
                 schema = create_block_schema()
-            elif entity == 'transactions':
+            elif entity == "transactions":
                 schema = create_transaction_schema()
-            elif entity == 'rewards':
+            elif entity == "rewards":
                 schema = create_rewards_schema()
             else:
                 raise ValueError(f"Unknown entity: {entity}")
@@ -312,7 +301,7 @@ class Validator:
             creation_date = date.today().isoformat()
 
             # Group by partition and save each group
-            for (epoch, block_date, block_hour), partition_df in df.groupby(['epoch', 'block_date', 'block_hour']):
+            for (epoch, block_date, block_hour), partition_df in df.groupby(["epoch", "block_date", "block_hour"]):
                 # Calculate metadata for this partition
                 first_slot = int(partition_df[slot_col].min())
                 last_slot = int(partition_df[slot_col].max())
@@ -332,7 +321,7 @@ class Validator:
                 fname = f"{entity}_slots_{first_slot}_{last_slot}_{first_ts}_{last_ts}_{current_ts}_{info['worker_id']}.parquet.gzip"
 
                 # Remove partition columns before saving
-                partition_df = partition_df.drop(columns=['epoch', 'block_date', 'block_hour'])
+                partition_df = partition_df.drop(columns=["epoch", "block_date", "block_hour"])
 
                 # Build destination path
                 dst_path = f"{entity}/epoch={epoch}/block_date={block_date}/block_hour={block_hour}/creation_date={creation_date}/{fname}"
@@ -341,9 +330,9 @@ class Validator:
                 success = upload_parquet_to_gcs(
                     bucket_name=GCS_BUCKET_NAME,
                     blob_name=dst_path,
-                    data=partition_df.to_dict(orient='records'),
+                    data=partition_df.to_dict(orient="records"),
                     schema=schema,
-                    compression='GZIP'
+                    compression="GZIP",
                 )
 
                 if success:
@@ -352,7 +341,7 @@ class Validator:
                     raise Exception(f"Failed to upload partition {dst_path}")
 
             # Delete original file after successful split
-            info['blob'].delete()
+            info["blob"].delete()
             logger.info(f"Deleted original file: {info['blob'].name}")
 
         finally:
@@ -380,7 +369,7 @@ class Validator:
 
                 for info in files_to_process:
                     future = executor.submit(self.process_file, info)
-                    futures[future] = info['blob'].name
+                    futures[future] = info["blob"].name
 
                 # Wait for completion
                 completed = 0

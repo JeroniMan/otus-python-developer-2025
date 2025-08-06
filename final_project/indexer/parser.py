@@ -1,34 +1,37 @@
-import threading
 import logging
-from time import sleep
-import orjson as json
-from typing import List, Dict, Optional, Set
-from dataclasses import dataclass
-import queue
-import time
-import re
 import os
+import queue
+import re
+import threading
+import time
+from dataclasses import dataclass
 from datetime import datetime
-from google.cloud import storage
+from typing import Dict, List, Optional, Set
+
+import orjson as json
 from dotenv import load_dotenv
 
-from utils import (upload_parquet_to_gcs, get_gcs_client, upload_json_to_gcs,
-                   download_json_from_gcs, get_collection_state, get_slot_state)
-from schema import (create_block_schema, create_rewards_schema, create_transaction_schema)
+from indexer.schema import create_block_schema, create_rewards_schema, create_transaction_schema
+from indexer.utils import (
+    download_json_from_gcs,
+    get_collection_state,
+    get_gcs_client,
+    get_slot_state,
+    upload_json_to_gcs,
+    upload_parquet_to_gcs,
+)
 
 load_dotenv()
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class ParseTask:
     """Represents a file to be parsed"""
+
     blob_name: str
     file_size: int = 0
     created_at: Optional[float] = None
@@ -126,7 +129,7 @@ class ParseQueueManager:
                 task = ParseTask(
                     blob_name=blob.name,
                     file_size=blob.size,
-                    created_at=blob.time_created.timestamp() if blob.time_created else None
+                    created_at=blob.time_created.timestamp() if blob.time_created else None,
                 )
 
                 try:
@@ -226,7 +229,7 @@ class ParseQueueManager:
             "processing": processing_count,
             "queued": self.parse_queue.qsize(),
             "failed": failed_count,
-            "worker_stats": dict(self.worker_stats)
+            "worker_stats": dict(self.worker_stats),
         }
 
     def save_state(self, force: bool = False):
@@ -241,7 +244,7 @@ class ParseQueueManager:
                 "timestamp": datetime.now().isoformat(),
                 "stats": self.get_progress(),
                 "worker_stats": {str(k): v for k, v in self.worker_stats.items()},
-                "failed_files": dict(self.failed_files)
+                "failed_files": dict(self.failed_files),
             }
 
             upload_json_to_gcs(self.state_bucket, self.state_file, state)
@@ -249,19 +252,11 @@ class ParseQueueManager:
             # Save completed files
             with self.completed_lock:
                 if self.completed_files:
-                    completed_data = {
-                        "files": sorted(self.completed_files),
-                        "count": len(self.completed_files)
-                    }
-                    upload_json_to_gcs(
-                        self.state_bucket,
-                        self.completed_files_file,
-                        completed_data,
-                        compress=True
-                    )
+                    completed_data = {"files": sorted(self.completed_files), "count": len(self.completed_files)}
+                    upload_json_to_gcs(self.state_bucket, self.completed_files_file, completed_data, compress=True)
 
             self.last_state_save = now
-            logger.info(f"Saved parser queue state")
+            logger.info("Saved parser queue state")
 
         except Exception as e:
             logger.error(f"Failed to save state: {e}")
@@ -278,14 +273,10 @@ class ParseQueueManager:
                 self.worker_stats = {int(k): v for k, v in worker_stats.items()}
                 self.failed_files = state.get("failed_files", {})
 
-                logger.info(f"Restored parser queue state")
+                logger.info("Restored parser queue state")
 
             # Restore completed files
-            completed_data = download_json_from_gcs(
-                self.state_bucket,
-                self.completed_files_file,
-                default={}
-            )
+            completed_data = download_json_from_gcs(self.state_bucket, self.completed_files_file, default={})
             if completed_data and "files" in completed_data:
                 self.completed_files = set(completed_data["files"])
                 logger.info(f"Restored {len(self.completed_files)} completed files")
@@ -298,8 +289,7 @@ class ParseQueueManager:
 
 
 class SolanaParser:
-    def __init__(self, worker_id: int, queue_manager: ParseQueueManager,
-                 bucket_name: str, storage_client):
+    def __init__(self, worker_id: int, queue_manager: ParseQueueManager, bucket_name: str, storage_client):
         self.worker_id = worker_id
         self.queue_manager = queue_manager
         self.bucket_name = bucket_name
@@ -317,12 +307,13 @@ class SolanaParser:
             bucket = self.storage_client.bucket(self.bucket_name)
             blob = bucket.blob(blob_name)
 
-            if blob_name.endswith('.gzip'):
+            if blob_name.endswith(".gzip"):
                 # Download and decompress
                 compressed_data = blob.download_as_bytes()
                 import gzip
                 from io import BytesIO
-                with gzip.GzipFile(fileobj=BytesIO(compressed_data), mode='rb') as f:
+
+                with gzip.GzipFile(fileobj=BytesIO(compressed_data), mode="rb") as f:
                     data = json.loads(f.read())
             else:
                 # Regular JSON
@@ -345,7 +336,7 @@ class SolanaParser:
 
     # [Include all your existing extract methods here]
     def extract_block(self, data):
-        slot = data['slot']
+        slot = data["slot"]
 
         try:
             blocks = {
@@ -359,7 +350,7 @@ class SolanaParser:
                 "status": data.get("status"),
                 "code": data.get("code"),
                 "message": data.get("message"),
-                "collected_at": data.get("collected_at")
+                "collected_at": data.get("collected_at"),
             }
             return blocks
         except Exception as e:
@@ -373,17 +364,19 @@ class SolanaParser:
             if "rewards" in data:
                 for reward in data["rewards"]:
                     if isinstance(reward, dict) and len(reward) > 0:
-                        rewards.append({
-                            "slot": slot,
-                            "pubkey": reward.get("pubkey"),
-                            "lamports": reward.get("lamports", 0),
-                            "postBalance": reward.get("postBalance", 0),
-                            "rewardType": reward.get("rewardType"),
-                            "commission": reward.get("commission", 0),
-                            "collected_at": data.get("collected_at"),
-                            "blockTime": data.get("blockTime"),
-                            "block_dt": int(data.get("blockTime")) if data.get("blockTime") else 0
-                        })
+                        rewards.append(
+                            {
+                                "slot": slot,
+                                "pubkey": reward.get("pubkey"),
+                                "lamports": reward.get("lamports", 0),
+                                "postBalance": reward.get("postBalance", 0),
+                                "rewardType": reward.get("rewardType"),
+                                "commission": reward.get("commission", 0),
+                                "collected_at": data.get("collected_at"),
+                                "blockTime": data.get("blockTime"),
+                                "block_dt": int(data.get("blockTime")) if data.get("blockTime") else 0,
+                            }
+                        )
             return rewards
         except Exception as e:
             logging.warning(f"[Parser {self.worker_id}] Can not parse {slot} rewards: {e}.")
@@ -410,20 +403,24 @@ class SolanaParser:
                     raw_transaction_message_instructions = raw_transaction_message.get("instructions", [])
                     # Transform instructions
                     instructions = []
-                    if isinstance(raw_transaction_message_instructions, list) and len(
-                            raw_transaction_message_instructions) > 0:
+                    if (
+                        isinstance(raw_transaction_message_instructions, list)
+                        and len(raw_transaction_message_instructions) > 0
+                    ):
                         for index_instruction, instruction in enumerate(raw_transaction_message_instructions):
                             if isinstance(instruction, dict) and len(instruction) > 0:
-                                instructions.append({
-                                    'instruction_index': index_instruction,
-                                    'programIdIndex': instruction.get('programIdIndex', None),
-                                    'programId': instruction.get('programId', None),
-                                    'program': instruction.get('program', None),
-                                    'data': instruction.get('data', None),
-                                    'accounts': instruction.get('accounts', []),
-                                    'parsed': str(instruction.get('parsed', None)),
-                                    'stackHeight': instruction.get('stackHeight', None)
-                                })
+                                instructions.append(
+                                    {
+                                        "instruction_index": index_instruction,
+                                        "programIdIndex": instruction.get("programIdIndex", None),
+                                        "programId": instruction.get("programId", None),
+                                        "program": instruction.get("program", None),
+                                        "data": instruction.get("data", None),
+                                        "accounts": instruction.get("accounts", []),
+                                        "parsed": str(instruction.get("parsed", None)),
+                                        "stackHeight": instruction.get("stackHeight", None),
+                                    }
+                                )
 
                     raw_transaction_signatures = raw_transaction.get("signatures", [])
                     signature = None
@@ -444,19 +441,23 @@ class SolanaParser:
                             instructions_parquet_inner = []
                             if "instructions" in innerInstruction:
                                 for instruction in innerInstruction.get("instructions", []):
-                                    instructions_parquet_inner.append({
-                                        'programIdIndex': instruction.get('programIdIndex', None),
-                                        'programId': instruction.get('programId', None),
-                                        'program': instruction.get('program', None),
-                                        'data': instruction.get('data', None),
-                                        'accounts': instruction.get('accounts', []),
-                                        'parsed': str(instruction.get('parsed', None)),
-                                        'stackHeight': instruction.get('stackHeight', None)
-                                    })
-                                innerInstructions_parquet.append({
-                                    "instructions": instructions_parquet_inner,
-                                    "index": innerInstruction.get("index", 0)
-                                })
+                                    instructions_parquet_inner.append(
+                                        {
+                                            "programIdIndex": instruction.get("programIdIndex", None),
+                                            "programId": instruction.get("programId", None),
+                                            "program": instruction.get("program", None),
+                                            "data": instruction.get("data", None),
+                                            "accounts": instruction.get("accounts", []),
+                                            "parsed": str(instruction.get("parsed", None)),
+                                            "stackHeight": instruction.get("stackHeight", None),
+                                        }
+                                    )
+                                innerInstructions_parquet.append(
+                                    {
+                                        "instructions": instructions_parquet_inner,
+                                        "index": innerInstruction.get("index", 0),
+                                    }
+                                )
 
                     # Extract postBalances
                     raw_postBalances = raw_meta.get("postBalances", [])
@@ -475,13 +476,15 @@ class SolanaParser:
                     rewards_parquet = []
                     if isinstance(raw_rewards, list) and len(raw_rewards) > 0:
                         for reward in raw_rewards:
-                            rewards_parquet.append({
-                                "commission": reward.get("commission", None),
-                                "lamports": reward.get("lamports", None),
-                                "postBalance": reward.get("postBalance", None),
-                                "pubkey": reward.get("pubkey", ""),
-                                "rewardType": reward.get("rewardType", "")
-                            })
+                            rewards_parquet.append(
+                                {
+                                    "commission": reward.get("commission", None),
+                                    "lamports": reward.get("lamports", None),
+                                    "postBalance": reward.get("postBalance", None),
+                                    "pubkey": reward.get("pubkey", ""),
+                                    "rewardType": reward.get("rewardType", ""),
+                                }
+                            )
 
                     # Extract token balances
                     raw_preTokenBalances = raw_meta.get("preTokenBalances", [])
@@ -490,17 +493,19 @@ class SolanaParser:
                         for balance in raw_preTokenBalances:
                             if isinstance(balance, dict) and len(balance) > 0:
                                 raw_uiTokenAmount = balance.get("uiTokenAmount", {})
-                                preTokenBalances_parquet.append({
-                                    "uiTokenAmount": {
-                                        "uiAmount": str(raw_uiTokenAmount.get("uiAmount", 0)),
-                                        "decimals": raw_uiTokenAmount.get("decimals", 0),
-                                        "uiAmountString": str(raw_uiTokenAmount.get("uiAmountString", "")),
-                                        "amount": int(raw_uiTokenAmount.get("amount", ""))
-                                    },
-                                    "owner": balance.get("owner", ""),
-                                    "mint": balance.get("mint", ""),
-                                    "accountIndex": balance.get("accountIndex", 0)
-                                })
+                                preTokenBalances_parquet.append(
+                                    {
+                                        "uiTokenAmount": {
+                                            "uiAmount": str(raw_uiTokenAmount.get("uiAmount", 0)),
+                                            "decimals": raw_uiTokenAmount.get("decimals", 0),
+                                            "uiAmountString": str(raw_uiTokenAmount.get("uiAmountString", "")),
+                                            "amount": int(raw_uiTokenAmount.get("amount", "")),
+                                        },
+                                        "owner": balance.get("owner", ""),
+                                        "mint": balance.get("mint", ""),
+                                        "accountIndex": balance.get("accountIndex", 0),
+                                    }
+                                )
 
                     raw_postTokenBalances = raw_meta.get("postTokenBalances", [])
                     postTokenBalances_parquet = []
@@ -508,49 +513,53 @@ class SolanaParser:
                         for balance in raw_postTokenBalances:
                             if isinstance(balance, dict) and len(balance) > 0:
                                 raw_uiTokenAmount = balance.get("uiTokenAmount", {})
-                                postTokenBalances_parquet.append({
-                                    "uiTokenAmount": {
-                                        "uiAmount": str(raw_uiTokenAmount.get("uiAmount", 0)),
-                                        "decimals": raw_uiTokenAmount.get("decimals", 0),
-                                        "uiAmountString": str(raw_uiTokenAmount.get("uiAmountString", "")),
-                                        "amount": int(raw_uiTokenAmount.get("amount", ""))
-                                    },
-                                    "owner": balance.get("owner", ""),
-                                    "mint": balance.get("mint", ""),
-                                    "accountIndex": balance.get("accountIndex", 0)
-                                })
+                                postTokenBalances_parquet.append(
+                                    {
+                                        "uiTokenAmount": {
+                                            "uiAmount": str(raw_uiTokenAmount.get("uiAmount", 0)),
+                                            "decimals": raw_uiTokenAmount.get("decimals", 0),
+                                            "uiAmountString": str(raw_uiTokenAmount.get("uiAmountString", "")),
+                                            "amount": int(raw_uiTokenAmount.get("amount", "")),
+                                        },
+                                        "owner": balance.get("owner", ""),
+                                        "mint": balance.get("mint", ""),
+                                        "accountIndex": balance.get("accountIndex", 0),
+                                    }
+                                )
 
-                    transactions.append({
-                        "slot": slot,
-                        "transaction_id": signature,
-                        "transaction": {
-                            "signatures": raw_transaction_signatures,
-                            "message": {
-                                "recentBlockhash": raw_transaction_message_recentBlockhash,
-                                "instructions": instructions,
-                                "header": raw_transaction_message.get("header", {}),
-                                "accountKeys": raw_transaction_message_accountKeys
-                            }
-                        },
-                        "meta": {
-                            "computeUnitsConsumed": int(raw_meta.get("computeUnitsConsumed", None)),
-                            "err": str(raw_meta.get("err", "")),
-                            "fee": float(raw_meta.get("fee", 0)),
-                            "innerInstructions": innerInstructions_parquet,
-                            "logMessages": logMessages,
-                            "postBalances": postBalances_parquet,
-                            "postTokenBalances": postTokenBalances_parquet,
-                            "preBalances": preBalances_parquet,
-                            "preTokenBalances": preTokenBalances_parquet,
-                            "rewards": rewards_parquet,
-                            "status": str(raw_meta.get("status", ""))
-                        },
-                        "version": raw_version,
-                        "blockTime": blockTime,
-                        "block_dt": int(blockTime) if blockTime else 0,
-                        "transaction_index": transaction_index,
-                        "collected_at": data.get("collected_at")
-                    })
+                    transactions.append(
+                        {
+                            "slot": slot,
+                            "transaction_id": signature,
+                            "transaction": {
+                                "signatures": raw_transaction_signatures,
+                                "message": {
+                                    "recentBlockhash": raw_transaction_message_recentBlockhash,
+                                    "instructions": instructions,
+                                    "header": raw_transaction_message.get("header", {}),
+                                    "accountKeys": raw_transaction_message_accountKeys,
+                                },
+                            },
+                            "meta": {
+                                "computeUnitsConsumed": int(raw_meta.get("computeUnitsConsumed", None)),
+                                "err": str(raw_meta.get("err", "")),
+                                "fee": float(raw_meta.get("fee", 0)),
+                                "innerInstructions": innerInstructions_parquet,
+                                "logMessages": logMessages,
+                                "postBalances": postBalances_parquet,
+                                "postTokenBalances": postTokenBalances_parquet,
+                                "preBalances": preBalances_parquet,
+                                "preTokenBalances": preTokenBalances_parquet,
+                                "rewards": rewards_parquet,
+                                "status": str(raw_meta.get("status", "")),
+                            },
+                            "version": raw_version,
+                            "blockTime": blockTime,
+                            "block_dt": int(blockTime) if blockTime else 0,
+                            "transaction_index": transaction_index,
+                            "collected_at": data.get("collected_at"),
+                        }
+                    )
             return transactions
         except Exception as e:
             logging.warning(f"[Parser {self.worker_id}] Can not parse {slot} transactions: {e}.")
@@ -565,7 +574,7 @@ class SolanaParser:
             raw_data = self._load_file(task.blob_name)
 
             # Extract base name for output files
-            base_name = task.blob_name.replace('raw_data/', '').split('.')[0]
+            base_name = task.blob_name.replace("raw_data/", "").split(".")[0]
 
             # Process data
             upload_blocks = []
@@ -583,7 +592,7 @@ class SolanaParser:
                 blob_name=f"processed_data/blocks_{base_name}.parquet",
                 data=upload_blocks,
                 schema=self.block_schema,
-                compression='GZIP'
+                compression="GZIP",
             )
 
             success_reward = upload_parquet_to_gcs(
@@ -591,7 +600,7 @@ class SolanaParser:
                 blob_name=f"processed_data/rewards_{base_name}.parquet",
                 data=upload_rewards,
                 schema=self.reward_schema,
-                compression='GZIP'
+                compression="GZIP",
             )
 
             success_txn = upload_parquet_to_gcs(
@@ -599,7 +608,7 @@ class SolanaParser:
                 blob_name=f"processed_data/transactions_{base_name}.parquet",
                 data=upload_transactions,
                 schema=self.transaction_schema,
-                compression='GZIP'
+                compression="GZIP",
             )
 
             if success_block and success_reward and success_txn:
@@ -677,9 +686,9 @@ def queue_monitor_worker(queue_manager: ParseQueueManager, min_progress: int):
 def run_parsers():
     """Main entry point for parser system"""
     # Load configuration
-    bucket_name = os.getenv('GCS_BUCKET_NAME', '')
-    state_bucket = os.getenv('GCS_STATE_BUCKET_NAME', '')
-    parser_count = int(os.getenv('PARSER_COUNT', '4'))
+    bucket_name = os.getenv("GCS_BUCKET_NAME", "")
+    state_bucket = os.getenv("GCS_STATE_BUCKET_NAME", "")
+    parser_count = int(os.getenv("PARSER_COUNT", "4"))
 
     # Get minimum progress to start parsing from
     progress, base_slot, min_slot = get_collection_state()
@@ -687,18 +696,11 @@ def run_parsers():
     storage_client = get_gcs_client()
 
     # Create queue manager
-    queue_manager = ParseQueueManager(
-        bucket_name=bucket_name,
-        state_bucket=state_bucket,
-        storage_client=storage_client
-    )
+    queue_manager = ParseQueueManager(bucket_name=bucket_name, state_bucket=state_bucket, storage_client=storage_client)
 
     # Start monitor thread
     monitor_thread = threading.Thread(
-        target=queue_monitor_worker,
-        args=(queue_manager, progress),
-        daemon=True,
-        name="ParserMonitor"
+        target=queue_monitor_worker, args=(queue_manager, progress), daemon=True, name="ParserMonitor"
     )
     monitor_thread.start()
 
@@ -711,14 +713,10 @@ def run_parsers():
             worker_id=worker_id,
             queue_manager=queue_manager,
             bucket_name=bucket_name,
-            storage_client=storage_client_worker
+            storage_client=storage_client_worker,
         )
 
-        thread = threading.Thread(
-            target=parser.run,
-            daemon=True,
-            name=f"Parser-{worker_id}"
-        )
+        thread = threading.Thread(target=parser.run, daemon=True, name=f"Parser-{worker_id}")
         thread.start()
         threads.append(thread)
 
