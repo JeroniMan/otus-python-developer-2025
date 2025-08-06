@@ -15,7 +15,7 @@ services:
     env_file: .env
     volumes:
       - .:/app
-    command: uv run indexer/collector.py
+    command: uv run python -m indexer.collector
     restart: unless-stopped
     networks:
       - app
@@ -28,7 +28,7 @@ services:
     env_file: .env
     volumes:
       - .:/app
-    command: uv run indexer/parser.py
+    command: uv run python -m indexer.parser
     depends_on:
       - collector
     restart: unless-stopped
@@ -45,7 +45,7 @@ services:
       - "8000:8000"
     volumes:
       - .:/app
-    command: uv run indexer/metrics.py
+    command: uv run python -m indexer.metrics
     restart: unless-stopped
     networks:
       - app
@@ -58,7 +58,7 @@ services:
     env_file: .env
     volumes:
       - .:/app
-    command: uv run indexer/validator.py
+    command: uv run python -m indexer.validator
     depends_on:
       - parser
     restart: unless-stopped
@@ -113,7 +113,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./config/promtail/data:/tmp
     command:
-      - config.file=/etc/promtail/docker-config.yaml
+      - "-config.file=/etc/promtail/docker-config.yaml"  # Добавлен дефис!
     depends_on:
       - loki
     networks:

@@ -1,35 +1,29 @@
-import os
 import logging
-import threading
-import time
-import re
-import json
+import os
 import queue
 import signal
 import sys
-from datetime import datetime, timezone
+import threading
+import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set
+from datetime import datetime, timezone
+from typing import Dict, List, Optional, Set, Any
 import requests
 from dotenv import load_dotenv
 from google.cloud import storage
 from google.oauth2 import service_account
 
-from utils import (upload_json_to_gcs,
-                   save_worker_state,
-                   download_json_from_gcs,
-                   upload_json_to_local,
-                   delete_files_from_gcs,
-                   collect_gaps)
+from indexer.utils import (
+    download_json_from_gcs,
+    upload_json_to_gcs,
+    upload_json_to_local,
+)
 
 # Load environment variables
 load_dotenv()
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 # Retry configuration
@@ -40,6 +34,7 @@ INITIAL_BACKOFF = 10.0  # seconds
 @dataclass
 class SlotTask:
     """Represents a slot to be processed"""
+
     slot: int
     retry_count: int = 0
     assigned_at: Optional[float] = None
@@ -81,26 +76,20 @@ class PersistentSlotQueueManager:
 
         # Statistics
         self.stats_lock = threading.Lock()
-        self.worker_stats = {}  # worker_id -> {processed: int, errors: int}
+        self.worker_stats: Dict[int, Dict[str, Any]] = {}  # worker_id -> {processed: int, errors: int}
 
         # Control flags
         self.running = True
 
         # Create session for RPC calls
         self.session = requests.Session()
-        self.session.mount('https://', requests.adapters.HTTPAdapter(
-            pool_connections=10,
-            pool_maxsize=20,
-            max_retries=0
-        ))
+        self.session.mount(
+            "https://", requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=0)
+        )
 
     def fetch_last_rpc_slot(self) -> Optional[int]:
         """Fetch the latest slot from RPC"""
-        payload = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "getSlot"
-        }
+        payload = {"jsonrpc": "2.0", "id": 1, "method": "getSlot"}
 
         try:
             resp = self.session.post(self.rpc_url, json=payload, timeout=5)
@@ -164,7 +153,7 @@ class PersistentSlotQueueManager:
 
     def get_slot_batch(self, worker_id: int, batch_size: int, timeout: float = 1.0) -> List[SlotTask]:
         """Get a batch of slots for a worker"""
-        batch = []
+        batch: List[SlotTask] = []
         deadline = time.time() + timeout
 
         while len(batch) < batch_size and time.time() < deadline:
@@ -260,7 +249,7 @@ class PersistentSlotQueueManager:
             processing_count = len(self.processing_slots)
 
         # Calculate processing rate
-        processing_rate = 0
+        total_processed = 0
         if self.worker_stats:
             total_processed = sum(stats["processed"] for stats in self.worker_stats.values())
 
@@ -274,7 +263,8 @@ class PersistentSlotQueueManager:
             "min_completed": min_completed,
             "max_completed": max_completed,
             "gaps": len(self.get_gaps()),
-            "worker_stats": dict(self.worker_stats)
+            "worker_stats": dict(self.worker_stats),
+            "total_processed": total_processed
         }
 
     def save_state(self, force: bool = False):
@@ -291,7 +281,7 @@ class PersistentSlotQueueManager:
                 "last_rpc_check": self.last_rpc_check,
                 "timestamp": datetime.now().isoformat(),
                 "stats": self.get_progress(),
-                "worker_stats": {str(k): v for k, v in self.worker_stats.items()}
+                "worker_stats": {str(k): v for k, v in self.worker_stats.items()},
             }
 
             upload_json_to_gcs(self.state_bucket, self.state_file, state)
@@ -304,7 +294,7 @@ class PersistentSlotQueueManager:
                         "slots": sorted(self.completed_slots),
                         "count": len(self.completed_slots),
                         "min": min(self.completed_slots),
-                        "max": max(self.completed_slots)
+                        "max": max(self.completed_slots),
                     }
                     upload_json_to_gcs(self.state_bucket, self.completed_slots_file, completed_data, compress=True)
 
@@ -364,21 +354,21 @@ class SolanaCollector:
         self.queue_filler_thread: Optional[threading.Thread] = None
 
         # Load configuration
-        self.rpc_url: str = os.getenv('RPC_URL', '')
-        self.worker_count: int = int(os.getenv('WORKER_COUNT', '1'))
-        self.start_slot: int = int(os.getenv('START_SLOT', '0'))
-        self.batch_size: int = int(os.getenv('BATCH_SIZE', '10'))
-        self.upload_batch_multiplier: int = int(os.getenv('UPLOAD_BATCH_MULTIPLIER', '10'))
-        self.gcs_bucket_name: str = os.getenv('GCS_BUCKET_NAME', '')
-        self.gcs_state_bucket_name: str = os.getenv('GCS_STATE_BUCKET_NAME', '')
-        self.store_mode: str = os.getenv('STORE_MODE', 'local')
+        self.rpc_url: str = os.getenv("RPC_URL", "")
+        self.worker_count: int = int(os.getenv("WORKER_COUNT", "1"))
+        self.start_slot: int = int(os.getenv("START_SLOT", "0"))
+        self.batch_size: int = int(os.getenv("BATCH_SIZE", "10"))
+        self.upload_batch_multiplier: int = int(os.getenv("UPLOAD_BATCH_MULTIPLIER", "10"))
+        self.gcs_bucket_name: str = os.getenv("GCS_BUCKET_NAME", "")
+        self.gcs_state_bucket_name: str = os.getenv("GCS_STATE_BUCKET_NAME", "")
+        self.store_mode: str = os.getenv("STORE_MODE", "local")
 
         # Initialize GCS client
-        creds_path = os.getenv('GCP_SERVICE_ACCOUNT_JSON', '')
+        creds_path = os.getenv("GCP_SERVICE_ACCOUNT_JSON", "")
         if creds_path:
             try:
                 creds = service_account.Credentials.from_service_account_file(creds_path)
-                project = os.getenv('GCP_PROJECT') or None
+                project = os.getenv("GCP_PROJECT") or None
                 self._storage_client = storage.Client(credentials=creds, project=project)
                 logger.info("Initialized GCS client with service account %s", creds_path)
             except Exception as e:
@@ -389,15 +379,21 @@ class SolanaCollector:
 
         # Create session for RPC calls
         self.session = requests.Session()
-        self.session.mount('https://', requests.adapters.HTTPAdapter(
-            pool_connections=self.worker_count,
-            pool_maxsize=self.worker_count * 2,
-            max_retries=0  # We handle retries manually
-        ))
+        self.session.mount(
+            "https://",
+            requests.adapters.HTTPAdapter(
+                pool_connections=self.worker_count,
+                pool_maxsize=self.worker_count * 2,
+                max_retries=0,  # We handle retries manually
+            ),
+        )
 
         logger.info(
             "Collector initialized: rpc_url=%s, workers=%d, start_slot=%d, batch_size=%d",
-            self.rpc_url, self.worker_count, self.start_slot, self.batch_size
+            self.rpc_url,
+            self.worker_count,
+            self.start_slot,
+            self.batch_size,
         )
 
     def fetch_blocks_batch(self, slots: List[int]) -> Dict[int, Dict]:
@@ -408,20 +404,22 @@ class SolanaCollector:
         # Build batch request
         batch_payload = []
         for i, slot in enumerate(slots):
-            batch_payload.append({
-                "jsonrpc": "2.0",
-                "id": i,
-                "method": "getBlock",
-                "params": [
-                    slot,
-                    {
-                        "encoding": "jsonParsed",
-                        "maxSupportedTransactionVersion": 0,
-                        "rewards": True,
-                        "transactionDetails": "full"
-                    }
-                ]
-            })
+            batch_payload.append(
+                {
+                    "jsonrpc": "2.0",
+                    "id": i,
+                    "method": "getBlock",
+                    "params": [
+                        slot,
+                        {
+                            "encoding": "jsonParsed",
+                            "maxSupportedTransactionVersion": 0,
+                            "rewards": True,
+                            "transactionDetails": "full",
+                        },
+                    ],
+                }
+            )
 
         collected_at = int(datetime.now(timezone.utc).timestamp())
 
@@ -452,7 +450,7 @@ class SolanaCollector:
                                 "collected_at": collected_at,
                                 "blockTime": 0,
                                 "code": code,
-                                "message": msg
+                                "message": msg,
                             }
                         elif code in (-32002, -32003, -32004, -32005, -32014, -32016, -32602):
                             # Transient error - retry the whole batch
@@ -464,7 +462,7 @@ class SolanaCollector:
                                 "status": "error",
                                 "collected_at": collected_at,
                                 "code": code,
-                                "message": msg
+                                "message": msg,
                             }
                     else:
                         block_result = result.get("result")
@@ -474,16 +472,18 @@ class SolanaCollector:
                                 "status": "empty",
                                 "collected_at": collected_at,
                                 "code": 200,
-                                "message": "Empty result"
+                                "message": "Empty result",
                             }
                         else:
-                            block_result.update({
-                                "slot": slot,
-                                "status": "ok",
-                                "collected_at": collected_at,
-                                "code": 200,
-                                "message": "OK"
-                            })
+                            block_result.update(
+                                {
+                                    "slot": slot,
+                                    "status": "ok",
+                                    "collected_at": collected_at,
+                                    "code": 200,
+                                    "message": "OK",
+                                }
+                            )
                             results[slot] = block_result
 
                 if should_retry and attempt < MAX_RETRIES:
@@ -555,16 +555,14 @@ class SolanaCollector:
     def worker(self, worker_id: int):
         """Updated worker with batch fetching from queue"""
         logger.info(f"Worker {worker_id} starting")
-        batch = []
-        batch_slots = []
+        batch: List[SlotTask] = []
+        batch_slots: List[int] = []
 
         while self.running:
             try:
                 # Get batch of slots from queue
                 slot_tasks = self.queue_manager.get_slot_batch(
-                    worker_id,
-                    batch_size=self.batch_size,  # Use batch_size for RPC batching
-                    timeout=1.0
+                    worker_id, batch_size=self.batch_size, timeout=1.0  # Use batch_size for RPC batching
                 )
 
                 if not slot_tasks:
@@ -638,7 +636,7 @@ class SolanaCollector:
         # Extract block times
         slot_times = []
         for data in batch:
-            slot_time = data.get('blockTime')
+            slot_time = data.get("blockTime")
             if slot_time:
                 slot_times.append(slot_time)
 
@@ -650,7 +648,7 @@ class SolanaCollector:
 
         # Upload logic
         if self.store_mode == "local":
-            result = upload_json_to_local('raw_data', blob, batch)
+            result = upload_json_to_local("raw_data", blob, batch)
         elif self.store_mode == "gcs":
             result = upload_json_to_gcs(self.gcs_bucket_name, blob, batch, compress=True)
         else:
@@ -664,7 +662,7 @@ class SolanaCollector:
                 "worker_id": worker_id,
                 "last_uploaded_slot": last_slot,
                 "timestamp": timestamp,
-                "batch_count": len(batch)
+                "batch_count": len(batch),
             }
             state_file = f"worker_{worker_id}.json"
             upload_json_to_gcs(self.gcs_state_bucket_name, state_file, state)
@@ -695,7 +693,7 @@ class SolanaCollector:
             start_slot=self.start_slot,
             rpc_url=self.rpc_url,
             state_bucket=self.gcs_state_bucket_name,
-            storage_client=self._storage_client
+            storage_client=self._storage_client,
         )
 
         queue_state = self.queue_manager.restore_state()
@@ -741,9 +739,7 @@ class SolanaCollector:
         # 6. Check for remaining queue slots from previous run
         try:
             remaining_data = download_json_from_gcs(
-                self.gcs_state_bucket_name,
-                "remaining_queue_slots.json",
-                default={}
+                self.gcs_state_bucket_name, "remaining_queue_slots.json", default={}
             )
             if remaining_data.get("slots"):
                 logger.info(f"Found {len(remaining_data['slots'])} remaining queued slots from previous run")
@@ -767,8 +763,8 @@ class SolanaCollector:
             # List all data files
             for blob in bucket.list_blobs(prefix="raw_data/"):
                 # Parse filename: slots_1000_2000_timestamp_worker.json
-                parts = blob.name.split('_')
-                if len(parts) >= 4 and 'slots' in parts[0]:
+                parts = blob.name.split("_")
+                if len(parts) >= 4 and "slots" in parts[0]:
                     try:
                         # Find the last slot number in the filename
                         for i, part in enumerate(parts):
@@ -790,42 +786,27 @@ class SolanaCollector:
             logger.error(f"Error analyzing uploaded files: {e}")
             return None
 
-
     def run(self) -> None:
         """Start the collector with queue-based approach"""
         # Perform reconciliation
         self.reconcile_start_slot_improved()
 
         # Start queue filler thread
-        self.queue_filler_thread = threading.Thread(
-            target=self.queue_filler_worker,
-            daemon=True,
-            name="QueueFiller"
-        )
+        self.queue_filler_thread = threading.Thread(target=self.queue_filler_worker, daemon=True, name="QueueFiller")
         self.queue_filler_thread.start()
 
         # Start monitor thread
-        self.monitor_thread = threading.Thread(
-            target=self.monitor_worker,
-            daemon=True,
-            name="Monitor"
-        )
+        self.monitor_thread = threading.Thread(target=self.monitor_worker, daemon=True, name="Monitor")
         self.monitor_thread.start()
 
         # Start worker threads
         logger.info(f"Starting {self.worker_count} workers with batch size {self.batch_size}")
         for wid in range(self.worker_count):
-            t = threading.Thread(
-                target=self.worker,
-                args=(wid,),
-                daemon=True,
-                name=f"Worker-{wid}"
-            )
+            t = threading.Thread(target=self.worker, args=(wid,), daemon=True, name=f"Worker-{wid}")
             t.start()
             self.threads.append(t)
 
         logger.info("All threads started successfully")
-
 
     def stop(self) -> None:
         """Enhanced stop that saves final state"""
@@ -850,18 +831,14 @@ class SolanaCollector:
                 upload_json_to_gcs(
                     self.gcs_state_bucket_name,
                     "remaining_queue_slots.json",
-                    {
-                        "slots": remaining_slots,
-                        "timestamp": datetime.now().isoformat(),
-                        "reason": "shutdown"
-                    }
+                    {"slots": remaining_slots, "timestamp": datetime.now().isoformat(), "reason": "shutdown"},
                 )
 
             # Close queue manager resources
             self.queue_manager.close()
 
         # Close session
-        if hasattr(self, 'session'):
+        if hasattr(self, "session"):
             self.session.close()
 
         # Wait for all threads to finish
@@ -883,7 +860,6 @@ class SolanaCollector:
 
         logger.info("Collector stopped cleanly")
 
-
     def validate_recovery(self):
         """Validate recovery data makes sense"""
         if not self.queue_manager:
@@ -891,8 +867,7 @@ class SolanaCollector:
 
         if self.start_slot > self.queue_manager.current_slot:
             logger.warning(
-                f"Start slot ({self.start_slot}) ahead of queue current slot "
-                f"({self.queue_manager.current_slot})!"
+                f"Start slot ({self.start_slot}) ahead of queue current slot " f"({self.queue_manager.current_slot})!"
             )
 
         gaps = self.queue_manager.get_gaps()
@@ -902,9 +877,7 @@ class SolanaCollector:
 
         # Check worker states consistency
         if self.queue_manager.worker_stats:
-            total_processed = sum(
-                stats["processed"] for stats in self.queue_manager.worker_stats.values()
-            )
+            total_processed = sum(stats["processed"] for stats in self.queue_manager.worker_stats.values())
             logger.info(f"Total slots processed in previous run: {total_processed}")
 
 
@@ -923,7 +896,7 @@ def setup_signal_handlers(collector):
 def main():
     """Main entry point"""
     # Validate required environment variables
-    required_vars = ['RPC_URL', 'GCS_BUCKET_NAME', 'GCS_STATE_BUCKET_NAME']
+    required_vars = ["RPC_URL", "GCS_BUCKET_NAME", "GCS_STATE_BUCKET_NAME"]
     missing_vars = [var for var in required_vars if not os.getenv(var)]
 
     if missing_vars:

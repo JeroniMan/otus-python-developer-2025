@@ -1,13 +1,16 @@
 """
 Test suite for Solana Indexer components
 """
-import pytest
+
 import os
-from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 from dotenv import load_dotenv
 
 load_dotenv()
+
 
 class TestImports:
     """Test that all modules can be imported"""
@@ -15,35 +18,40 @@ class TestImports:
     def test_collector_imports(self):
         """Test that collector module can be imported."""
         import indexer.collector
-        assert hasattr(indexer.collector, 'SolanaCollector')
-        assert hasattr(indexer.collector, 'PersistentSlotQueueManager')
-        assert hasattr(indexer.collector, 'SlotTask')
+
+        assert hasattr(indexer.collector, "SolanaCollector")
+        assert hasattr(indexer.collector, "PersistentSlotQueueManager")
+        assert hasattr(indexer.collector, "SlotTask")
 
     def test_parser_imports(self):
         """Test that parser module can be imported."""
         import indexer.parser
-        assert hasattr(indexer.parser, 'SolanaParser')
-        assert hasattr(indexer.parser, 'ParseQueueManager')
-        assert hasattr(indexer.parser, 'ParseTask')
+
+        assert hasattr(indexer.parser, "SolanaParser")
+        assert hasattr(indexer.parser, "ParseQueueManager")
+        assert hasattr(indexer.parser, "ParseTask")
 
     def test_validator_imports(self):
         """Test that validator module can be imported."""
         import indexer.validator
-        assert hasattr(indexer.validator, 'Validator')
+
+        assert hasattr(indexer.validator, "Validator")
 
     def test_utils_imports(self):
         """Test that utils module can be imported."""
         import indexer.utils
-        assert hasattr(indexer.utils, 'get_gcs_client')
-        assert hasattr(indexer.utils, 'upload_json_to_gcs')
-        assert hasattr(indexer.utils, 'calculate_files_queue')
+
+        assert hasattr(indexer.utils, "get_gcs_client")
+        assert hasattr(indexer.utils, "upload_json_to_gcs")
+        assert hasattr(indexer.utils, "calculate_files_queue")
 
     def test_schema_imports(self):
         """Test that schema module can be imported."""
         import indexer.schema
-        assert hasattr(indexer.schema, 'create_block_schema')
-        assert hasattr(indexer.schema, 'create_rewards_schema')
-        assert hasattr(indexer.schema, 'create_transaction_schema')
+
+        assert hasattr(indexer.schema, "create_block_schema")
+        assert hasattr(indexer.schema, "create_rewards_schema")
+        assert hasattr(indexer.schema, "create_transaction_schema")
 
 
 class TestSlotTask:
@@ -83,7 +91,7 @@ class TestParseTask:
 class TestUtilFunctions:
     """Test utility functions"""
 
-    @patch('indexer.utils.storage.Client')
+    @patch("indexer.utils.storage.Client")
     def test_calculate_files_queue_empty(self, mock_storage):
         """Test calculate_files_queue with no files"""
         from indexer.utils import calculate_files_queue
@@ -93,27 +101,27 @@ class TestUtilFunctions:
         mock_bucket.list_blobs.return_value = []
         mock_storage.return_value.bucket.return_value = mock_bucket
 
-        count, min_progress = calculate_files_queue('raw_data/')
+        count, min_progress = calculate_files_queue("raw_data/")
         assert count == 0
         assert min_progress == 0
 
-    @patch('indexer.utils.storage.Client')
+    @patch("indexer.utils.storage.Client")
     def test_calculate_files_queue_with_files(self, mock_storage):
         """Test calculate_files_queue with matching files"""
         from indexer.utils import calculate_files_queue
 
         # Mock files
         mock_blob1 = Mock()
-        mock_blob1.name = 'raw_data/slots_100_200_1234_5678_1000_0.json.gzip'
+        mock_blob1.name = "raw_data/slots_100_200_1234_5678_1000_0.json.gzip"
         mock_blob2 = Mock()
-        mock_blob2.name = 'raw_data/slots_201_300_5679_6789_2000_1.json.gzip'
+        mock_blob2.name = "raw_data/slots_201_300_5679_6789_2000_1.json.gzip"
 
         mock_bucket = Mock()
         mock_bucket.list_blobs.return_value = [mock_blob1, mock_blob2]
         mock_storage.return_value.bucket.return_value = mock_bucket
 
-        with patch('indexer.utils.get_gcs_client', return_value=mock_storage.return_value):
-            count, min_progress = calculate_files_queue('raw_data/')
+        with patch("indexer.utils.get_gcs_client", return_value=mock_storage.return_value):
+            count, min_progress = calculate_files_queue("raw_data/")
 
         assert count == 2
         assert min_progress == 1000  # minimum timestamp
@@ -162,7 +170,7 @@ class TestSchemas:
         schema = create_block_schema()
         field_names = [field.name for field in schema]
 
-        required_fields = ['slot', 'blockhash', 'blockTime', 'blockHeight']
+        required_fields = ["slot", "blockhash", "blockTime", "blockHeight"]
         for field in required_fields:
             assert field in field_names
 
@@ -173,7 +181,7 @@ class TestSchemas:
         schema = create_transaction_schema()
         field_names = [field.name for field in schema]
 
-        required_fields = ['slot', 'transaction_id', 'blockTime', 'transaction_index']
+        required_fields = ["slot", "transaction_id", "blockTime", "transaction_index"]
         for field in required_fields:
             assert field in field_names
 
@@ -184,7 +192,7 @@ class TestSchemas:
         schema = create_rewards_schema()
         field_names = [field.name for field in schema]
 
-        required_fields = ['slot', 'pubkey', 'lamports', 'rewardType']
+        required_fields = ["slot", "pubkey", "lamports", "rewardType"]
         for field in required_fields:
             assert field in field_names
 
@@ -216,9 +224,9 @@ class TestFilePatterns:
         for name in valid_names:
             match = pattern.match(name)
             assert match is not None
-            assert match.group('first_slot') == '100'
-            assert match.group('last_slot') == '200'
-            assert match.group('worker_id') == '0'
+            assert match.group("first_slot") == "100"
+            assert match.group("last_slot") == "200"
+            assert match.group("worker_id") == "0"
 
         # Test invalid filenames
         invalid_names = [
@@ -235,17 +243,17 @@ class TestFilePatterns:
 class TestQueueManager:
     """Test PersistentSlotQueueManager"""
 
-    @patch('indexer.collector.storage.Client')
-    @patch('indexer.collector.requests.Session')
+    @patch("indexer.collector.storage.Client")
+    @patch("indexer.collector.requests.Session")
     def test_queue_manager_init(self, mock_session, mock_storage):
         """Test queue manager initialization"""
         from indexer.collector import PersistentSlotQueueManager
 
         manager = PersistentSlotQueueManager(
             start_slot=1000,
-            rpc_url='https://test.rpc.url',
-            state_bucket='tests-bucket',
-            storage_client=mock_storage.return_value
+            rpc_url="https://test.rpc.url",
+            state_bucket="tests-bucket",
+            storage_client=mock_storage.return_value,
         )
 
         assert manager.start_slot == 1000
