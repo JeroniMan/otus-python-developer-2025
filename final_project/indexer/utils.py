@@ -4,16 +4,17 @@ import os
 import re
 import time
 from io import BytesIO
-from typing import Dict, List, Optional, Tuple, Iterable
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import gcsfs
+import numpy as np
 import orjson as json
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 from google.cloud import storage
 from google.oauth2 import service_account
-import numpy as np
+
 from indexer.config import GCP_SERVICE_ACCOUNT_JSON, GCS_STATE_BUCKET_NAME
 
 # Configure logging

@@ -4,9 +4,11 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timezone
-from typing import Dict, List, Tuple, Set
+from typing import Dict, List, Set, Tuple
+
 import pandas as pd
 from dotenv import load_dotenv
+
 from indexer.schema import create_block_schema, create_rewards_schema, create_transaction_schema
 from indexer.utils import download_json_from_gcs, get_gcs_client, upload_json_to_gcs, upload_parquet_to_gcs
 
