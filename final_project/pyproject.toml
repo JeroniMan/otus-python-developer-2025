@@ -1,0 +1,25 @@
+[project]
+name = "solana-indexer"
+version = "0.1.0"
+description = "Solana indexer with UV"
+authors = [
+    { name = "German Kovalev", email = "german.kovalev@p2p.org" }
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "black>=25.1.0",
+    "dotenv>=0.9.9",
+    "flake8>=7.2.0",
+    "gcsfs>=2025.3.2",
+    "google-api-python-client>=2.167.0",
+    "google-auth>=2.39.0",
+    "google-cloud>=0.34.0",
+    "google-cloud-storage>=3.1.0",
+    "mypy>=1.15.0",
+    "orjson>=3.10.18",
+    "pandas>=2.2.3",
+    "prometheus-client>=0.21.1",
+    "pyarrow>=19.0.1",
+    "requests>=2.32.3",
+]
