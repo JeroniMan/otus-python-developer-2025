@@ -64,38 +64,7 @@ jobs:
       - name: 🧪 Run tests
         run: |
           # Create a simple test file if none exists
-          mkdir -p tests
-          if [ ! -f tests/test_imports.py ]; then
-            cat > tests/test_imports.py << 'EOF'
-"""Basic import tests to verify modules can be loaded."""
-
-def test_collector_imports():
-    """Test that collector module can be imported."""
-    import indexer.collector
-    assert hasattr(indexer.collector, 'SolanaCollector')
-
-def test_parser_imports():
-    """Test that parser module can be imported."""
-    import indexer.parser
-    assert hasattr(indexer.parser, 'SolanaParser')
-
-def test_validator_imports():
-    """Test that validator module can be imported."""
-    import indexer.validator
-    assert hasattr(indexer.validator, 'Validator')
-
-def test_utils_imports():
-    """Test that utils module can be imported."""
-    import indexer.utils
-    assert hasattr(indexer.utils, 'get_gcs_client')
-
-def test_schema_imports():
-    """Test that schema module can be imported."""
-    import indexer.schema
-    assert hasattr(indexer.schema, 'create_block_schema')
-EOF
-          fi
-          uv run pytest tests/ -v
+          uv run make test
 
   docker-build:
     runs-on: ubuntu-latest
