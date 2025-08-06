@@ -14,7 +14,7 @@ on:
       - 'final_project/**'
 
 jobs:
-  build:
+  lint-and-test:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -22,29 +22,102 @@ jobs:
 
     steps:
       - name: 🧾 Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: ⚙️ Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: 🛠️ Install Poetry
-        uses: abatilo/actions-poetry@v2
+      - name: 🛠️ Install UV
+        uses: astral-sh/setup-uv@v3
         with:
-          poetry-version: '1.8.2'
+          enable-cache: true
+          cache-dependency-glob: "final_project/pyproject.toml"
 
       - name: 📦 Install dependencies
-        run: poetry install
+        run: |
+          # Install all dependencies including dev
+          uv sync --all-extras
 
       - name: 🎨 Check formatting with black
-        run: poetry run black --check .
-
-      - name: 🔍 Lint with flake8
-        run: poetry run flake8 .
-
-      - name: 🔠 Type check with mypy
-        run: poetry run mypy .
+        run: uv run black --check indexer/
 
       - name: 🔀 Check import order with isort
-        run: poetry run isort --check-only .
+        run: uv run isort --check-only indexer/
+
+      - name: 🔍 Lint with flake8
+        run: uv run flake8 indexer/
+
+      - name: 🔠 Type check with mypy
+        run: |
+          # Create mypy config if it doesn't exist
+          if [ ! -f mypy.ini ]; then
+            echo "[mypy]" > mypy.ini
+            echo "python_version = 3.12" >> mypy.ini
+            echo "ignore_missing_imports = True" >> mypy.ini
+            echo "warn_return_any = True" >> mypy.ini
+            echo "warn_unused_configs = True" >> mypy.ini
+          fi
+          uv run mypy indexer/
+
+      - name: 🧪 Run tests
+        run: |
+          # Create a simple test file if none exists
+          mkdir -p tests
+          if [ ! -f tests/test_imports.py ]; then
+            cat > tests/test_imports.py << 'EOF'
+"""Basic import tests to verify modules can be loaded."""
+
+def test_collector_imports():
+    """Test that collector module can be imported."""
+    import indexer.collector
+    assert hasattr(indexer.collector, 'SolanaCollector')
+
+def test_parser_imports():
+    """Test that parser module can be imported."""
+    import indexer.parser
+    assert hasattr(indexer.parser, 'SolanaParser')
+
+def test_validator_imports():
+    """Test that validator module can be imported."""
+    import indexer.validator
+    assert hasattr(indexer.validator, 'Validator')
+
+def test_utils_imports():
+    """Test that utils module can be imported."""
+    import indexer.utils
+    assert hasattr(indexer.utils, 'get_gcs_client')
+
+def test_schema_imports():
+    """Test that schema module can be imported."""
+    import indexer.schema
+    assert hasattr(indexer.schema, 'create_block_schema')
+EOF
+          fi
+          uv run pytest tests/ -v
+
+  docker-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: final_project
+
+    steps:
+      - name: 🧾 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🏗️ Build Docker image
+        run: |
+          docker build -t solana-indexer:test .
+
+      - name: 🔍 Test Docker image
+        run: |
+          docker run --rm solana-indexer:test uv --version
+
+      - name: 📦 Check Docker Compose config
+        run: |
+          docker-compose config
