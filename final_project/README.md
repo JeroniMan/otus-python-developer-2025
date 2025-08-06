@@ -223,7 +223,7 @@ Basic import tests are included to verify module structure:
 
 ```bash
 # Run tests
-uv run pytest tests/ -v
+uv run make test
 ```
 
 For production deployment, additional tests should be implemented for:
