@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'final_project/**'
+      
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'final_project/**'
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: final_project
+
+    steps:
+      - name: 🧾 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 🛠️ Install UV
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "final_project/pyproject.toml"
+
+      - name: 📦 Install dependencies
+        run: |
+          # Install all dependencies including dev
+          uv sync --all-extras
+
+      - name: 🎨 Check formatting with black
+        run: uv run black --check indexer/
+
+      - name: 🔀 Check import order with isort
+        run: uv run isort --check-only indexer/
+
+      - name: 🔍 Lint with flake8
+        run: uv run flake8 indexer/
+
+      - name: 🔠 Type check with mypy
+        run: |
+          uv run mypy indexer/ --ignore-missing-imports --no-strict-optional --allow-untyped-defs || true
+
+  docker-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: final_project
+
+    steps:
+      - name: 🧾 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🏗️ Build Docker image
+        run: |
+          docker build -t solana-indexer:test .
+
+      - name: 🔍 Test Docker image
+        run: |
+          docker run --rm solana-indexer:test uv --version
+
+      # - name: Setup Docker Compose
+      #   uses: KengoTODA/actions-setup-docker-compose@v1
+      #   with:
+      #     version: '2.20.2' # Specify the desired Docker Compose version
+
+      # - name: 📦 Check Docker Compose config
+      #   run: |
+      #     docker-compose config

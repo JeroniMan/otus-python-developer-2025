@@ -1,0 +1,58 @@
+[project]
+name = "solana-indexer"
+version = "0.1.0"
+description = "Solana indexer with UV"
+authors = [
+    { name = "German Kovalev", email = "german.n.kovalev@gmail.com" }
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "python-dotenv>=1.0.0",
+    "gcsfs>=2024.3.1",
+    "google-api-python-client>=2.167.0",
+    "google-auth>=2.39.0",
+    "google-cloud>=0.34.0",
+    "google-cloud-storage>=3.1.0",
+    "orjson>=3.10.18",
+    "pandas>=2.2.3",
+    "prometheus-client>=0.21.1",
+    "pyarrow>=19.0.1",
+    "requests>=2.32.3",
+    "pytest>=8.4.1",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "black>=24.3.0",
+    "flake8>=7.0.0",
+    "mypy>=1.9.0",
+    "isort>=5.13.2",
+    "pytest>=8.0.0",
+    "types-requests>=2.31.0",
+]
+
+[tool.black]
+line-length = 120
+target-version = ['py312']
+
+[tool.isort]
+profile = "black"
+line_length = 120
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_return_any = true
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "google.*",
+    "pandas.*",
+    "pyarrow.*",
+    "orjson.*",
+    "prometheus_client.*",
+    "gcsfs.*"
+]
+ignore_missing_imports = true

@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'hm_1/**'
+      
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'hm_1/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hm_1
+
+    steps:
+      - name: 🧾 Checkout repository
+        uses: actions/checkout@v3
+
+      - name: ⚙️ Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: 🛠️ Install Poetry
+        uses: abatilo/actions-poetry@v2
+        with:
+          poetry-version: '1.8.2'
+
+      - name: 📦 Install dependencies
+        run: poetry install
+
+      - name: 🎨 Check formatting with black
+        run: poetry run black --check src/
+
+      - name: 🔍 Lint with flake8
+        run: poetry run flake8 src/
+
+      - name: 🔠 Type check with mypy
+        run: poetry run mypy src/
+
+      - name: 🔀 Check import order with isort
+        run: poetry run isort --check-only src/
+
+      - name: 🧪 Run tests
+        run: poetry run pytest --maxfail=1 --disable-warnings -q

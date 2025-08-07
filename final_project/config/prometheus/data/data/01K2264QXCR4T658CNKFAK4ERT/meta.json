@@ -1,0 +1,17 @@
+{
+	"ulid": "01K2264QXCR4T658CNKFAK4ERT",
+	"minTime": 1754556896190,
+	"maxTime": 1754560800000,
+	"stats": {
+		"numSamples": 8039,
+		"numSeries": 31,
+		"numChunks": 64
+	},
+	"compaction": {
+		"level": 1,
+		"sources": [
+			"01K2264QXCR4T658CNKFAK4ERT"
+		]
+	},
+	"version": 1
+}

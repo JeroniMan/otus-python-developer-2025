@@ -1,0 +1,17 @@
+{
+	"ulid": "01K22GQYE623GQ66H9B720S6BD",
+	"minTime": 1754568011299,
+	"maxTime": 1754575200000,
+	"stats": {
+		"numSamples": 14880,
+		"numSeries": 31,
+		"numChunks": 125
+	},
+	"compaction": {
+		"level": 1,
+		"sources": [
+			"01K22GQYE623GQ66H9B720S6BD"
+		]
+	},
+	"version": 1
+}

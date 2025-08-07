@@ -1,0 +1,17 @@
+{
+	"ulid": "01K229W755HMNQPCB83KN39H4V",
+	"minTime": 1754560811207,
+	"maxTime": 1754568000000,
+	"stats": {
+		"numSamples": 14880,
+		"numSeries": 31,
+		"numChunks": 126
+	},
+	"compaction": {
+		"level": 1,
+		"sources": [
+			"01K229W755HMNQPCB83KN39H4V"
+		]
+	},
+	"version": 1
+}

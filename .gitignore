@@ -1,0 +1,6 @@
+# VSCode / JetBrains
+.vscode/
+.idea/
+
+# OS
+.DS_Store
