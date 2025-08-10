@@ -1,0 +1,121 @@
+name: CI - HM6
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'hm_6/**'
+      - '.github/workflows/hm_6.yml'
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'hm_6/**'
+      - '.github/workflows/hm_6.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hm_6
+
+    steps:
+      - name: 🧾 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 🛠️ Install UV
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "hm_6/pyproject.toml"
+
+      - name: 📦 Install dependencies
+        run: uv sync --all-extras
+
+      - name: 🎨 Check formatting with black
+        run: uv run black --check domain infrastructure tests
+
+      - name: 🔀 Check import order with isort
+        run: uv run isort --check-only domain infrastructure tests
+
+      - name: 🔍 Lint with pylint
+        run: uv run pylint domain infrastructure
+
+      - name: 🔠 Type check with mypy
+        run: uv run mypy domain infrastructure
+        continue-on-error: true
+
+      - name: 🧪 Run unit tests
+        run: uv run pytest tests/ -v
+
+      - name: 📊 Generate coverage report
+        run: uv run pytest tests/ --cov=domain --cov=infrastructure --cov-report=xml --cov-report=term
+
+      - name: 📈 Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./hm_6/coverage.xml
+          flags: unittests
+          name: hm6-coverage
+        continue-on-error: true
+
+      - name: 📊 Check coverage threshold
+        run: |
+          uv run coverage report --fail-under=80 --include="domain/*"
+        continue-on-error: true
+
+  integration-test:
+    runs-on: ubuntu-latest
+    needs: test
+    defaults:
+      run:
+        working-directory: hm_6
+
+    steps:
+      - name: 🧾 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 🛠️ Install UV
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "hm_6/pyproject.toml"
+
+      - name: 📦 Install dependencies
+        run: uv sync --all-extras
+
+      - name: 🚀 Run application
+        run: |
+          uv run python main.py
+          test -f warehouse.db && echo "✅ Database created successfully" || exit 1
+
+      - name: 🧪 Run integration test
+        run: |
+          uv run python -c "
+from infrastructure.database import init_db, get_session_factory
+from infrastructure.unit_of_work import SqlAlchemyUnitOfWork
+from domain.services import WarehouseService
+
+engine = init_db()
+session_factory = get_session_factory(engine)
+uow = SqlAlchemyUnitOfWork(session_factory)
+
+with uow:
+    service = WarehouseService(uow.products, uow.orders)
+    product = service.create_product('Test', 10, 99.99)
+    assert product.id is not None
+    print('✅ Integration test passed')
+          "
