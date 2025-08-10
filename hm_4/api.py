@@ -1,15 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import abc
-import json
 import datetime
-import logging
 import hashlib
+import json
+import logging
 import uuid
 from argparse import ArgumentParser
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Any, Dict, List, Optional, Tuple
 
 import scoring
 
@@ -45,7 +43,7 @@ class ValidationError(Exception):
 
 
 class Field:
-    """Base field descriptor for validation"""
+    """Base field descriptor for validation."""
 
     def __init__(self, required=False, nullable=False):
         self.required = required
@@ -100,7 +98,7 @@ class DateField(Field):
             return
         try:
             datetime.datetime.strptime(value, "%d.%m.%Y")
-        except:
+        except (ValueError, TypeError):
             raise ValidationError(f"{self.name} must be in DD.MM.YYYY format")
 
 
@@ -133,7 +131,7 @@ class ClientIDsField(Field):
 
 
 class RequestMeta(type):
-    """Metaclass to collect fields"""
+    """Metaclass to collect fields."""
 
     def __new__(mcs, name, bases, namespace):
         fields = {}
@@ -145,7 +143,7 @@ class RequestMeta(type):
 
 
 class Request(metaclass=RequestMeta):
-    """Base request class"""
+    """Base request class."""
 
     def __init__(self, data=None):
         self._data = data or {}
@@ -179,8 +177,12 @@ class OnlineScoreRequest(Request):
         if not super().validate():
             return False
 
-        # Check for required pairs
-        pairs = [(self.phone, self.email), (self.first_name, self.last_name), (self.gender, self.birthday)]
+        # Check for required pairs  # flake8 E261: two spaces before inline comment
+        pairs = [
+            (self.phone, self.email),
+            (self.first_name, self.last_name),
+            (self.gender, self.birthday),
+        ]
 
         if not any(all(v not in (None, "") for v in pair) for pair in pairs):
             self._errors.append(
@@ -212,14 +214,14 @@ def check_auth(request):
 
 
 def online_score_handler(request, ctx, store):
-    score_request = OnlineScoreRequest(request.arguments)
+    score_request = OnlineScoreRequest(request["body"]["arguments"])
     if not score_request.validate():
         return "; ".join(score_request._errors), INVALID_REQUEST
 
-    # Update context with non-empty fields
+    # Update context with non-empty fields  # flake8 E261
     ctx["has"] = [k for k, v in score_request._data.items() if v not in (None, "") and k in score_request._fields]
 
-    if request.is_admin:
+    if request["body"].get("login") == ADMIN_LOGIN:
         return {"score": 42}, OK
 
     score = scoring.get_score(
@@ -235,7 +237,7 @@ def online_score_handler(request, ctx, store):
 
 
 def clients_interests_handler(request, ctx, store):
-    interests_request = ClientsInterestsRequest(request.arguments)
+    interests_request = ClientsInterestsRequest(request["body"]["arguments"])
     if not interests_request.validate():
         return "; ".join(interests_request._errors), INVALID_REQUEST
 
@@ -262,7 +264,7 @@ def method_handler(request, ctx, store):
     if not handler:
         return "Method not found", NOT_FOUND
 
-    return handler(method_request, ctx, store)
+    return handler(request, ctx, store)
 
 
 class MainHTTPHandler(BaseHTTPRequestHandler):
@@ -279,7 +281,7 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
         try:
             data_string = self.rfile.read(int(self.headers["Content-Length"]))
             request = json.loads(data_string)
-        except:
+        except (KeyError, ValueError, TypeError):
             code = BAD_REQUEST
 
         if request:
