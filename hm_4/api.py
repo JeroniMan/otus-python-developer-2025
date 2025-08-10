@@ -140,7 +140,7 @@ class RequestMeta(type):
         for key, value in namespace.items():
             if isinstance(value, Field):
                 fields[key] = value
-        namespace['_fields'] = fields
+        namespace["_fields"] = fields
         return super().__new__(mcs, name, bases, namespace)
 
 
@@ -180,15 +180,12 @@ class OnlineScoreRequest(Request):
             return False
 
         # Check for required pairs
-        pairs = [
-            (self.phone, self.email),
-            (self.first_name, self.last_name),
-            (self.gender, self.birthday)
-        ]
+        pairs = [(self.phone, self.email), (self.first_name, self.last_name), (self.gender, self.birthday)]
 
         if not any(all(v not in (None, "") for v in pair) for pair in pairs):
             self._errors.append(
-                "At least one pair must be non-empty: phone-email, first_name-last_name, or gender-birthday")
+                "At least one pair must be non-empty: phone-email, first_name-last_name, or gender-birthday"
+            )
             return False
 
         return True
@@ -208,9 +205,9 @@ class MethodRequest(Request):
 
 def check_auth(request):
     if request.is_admin:
-        digest = hashlib.sha512((datetime.datetime.now().strftime("%Y%m%d%H") + ADMIN_SALT).encode('utf-8')).hexdigest()
+        digest = hashlib.sha512((datetime.datetime.now().strftime("%Y%m%d%H") + ADMIN_SALT).encode("utf-8")).hexdigest()
     else:
-        digest = hashlib.sha512((request.account + request.login + SALT).encode('utf-8')).hexdigest()
+        digest = hashlib.sha512((request.account + request.login + SALT).encode("utf-8")).hexdigest()
     return digest == request.token
 
 
@@ -220,8 +217,7 @@ def online_score_handler(request, ctx, store):
         return "; ".join(score_request._errors), INVALID_REQUEST
 
     # Update context with non-empty fields
-    ctx["has"] = [k for k, v in score_request._data.items()
-                  if v not in (None, "") and k in score_request._fields]
+    ctx["has"] = [k for k, v in score_request._data.items() if v not in (None, "") and k in score_request._fields]
 
     if request.is_admin:
         return {"score": 42}, OK
@@ -233,7 +229,7 @@ def online_score_handler(request, ctx, store):
         score_request.birthday,
         score_request.gender,
         score_request.first_name,
-        score_request.last_name
+        score_request.last_name,
     )
     return {"score": score}, OK
 
@@ -253,10 +249,7 @@ def clients_interests_handler(request, ctx, store):
 
 
 def method_handler(request, ctx, store):
-    handlers = {
-        "online_score": online_score_handler,
-        "clients_interests": clients_interests_handler
-    }
+    handlers = {"online_score": online_score_handler, "clients_interests": clients_interests_handler}
 
     method_request = MethodRequest(request.get("body", {}))
     if not method_request.validate():
@@ -273,20 +266,18 @@ def method_handler(request, ctx, store):
 
 
 class MainHTTPHandler(BaseHTTPRequestHandler):
-    router = {
-        "method": method_handler
-    }
+    router = {"method": method_handler}
     store = None
 
     def get_request_id(self, headers):
-        return headers.get('HTTP_X_REQUEST_ID', uuid.uuid4().hex)
+        return headers.get("HTTP_X_REQUEST_ID", uuid.uuid4().hex)
 
     def do_POST(self):
         response, code = {}, OK
         context = {"request_id": self.get_request_id(self.headers)}
         request = None
         try:
-            data_string = self.rfile.read(int(self.headers['Content-Length']))
+            data_string = self.rfile.read(int(self.headers["Content-Length"]))
             request = json.loads(data_string)
         except:
             code = BAD_REQUEST
@@ -312,7 +303,7 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
             r = {"error": response or ERRORS.get(code, "Unknown Error"), "code": code}
         context.update(r)
         logging.info(context)
-        self.wfile.write(json.dumps(r).encode('utf-8'))
+        self.wfile.write(json.dumps(r).encode("utf-8"))
         return
 
 
@@ -321,8 +312,12 @@ if __name__ == "__main__":
     parser.add_argument("-p", "--port", action="store", type=int, default=8080)
     parser.add_argument("-l", "--log", action="store", default=None)
     args = parser.parse_args()
-    logging.basicConfig(filename=args.log, level=logging.INFO,
-                        format='[%(asctime)s] %(levelname).1s %(message)s', datefmt='%Y.%m.%d %H:%M:%S')
+    logging.basicConfig(
+        filename=args.log,
+        level=logging.INFO,
+        format="[%(asctime)s] %(levelname).1s %(message)s",
+        datefmt="%Y.%m.%d %H:%M:%S",
+    )
     server = HTTPServer(("localhost", args.port), MainHTTPHandler)
     logging.info("Starting server at %s" % args.port)
     try:
