@@ -1,0 +1,27 @@
+[MASTER]
+ignore=tests
+
+[MESSAGES CONTROL]
+disable=
+    C0114,  # missing-module-docstring
+    C0115,  # missing-class-docstring
+    C0116,  # missing-function-docstring
+    R0903,  # too-few-public-methods
+    R0913,  # too-many-arguments
+    W0212,  # protected-access
+    E1101,  # no-member (false positives with SQLAlchemy)
+
+[FORMAT]
+max-line-length=100
+
+[DESIGN]
+max-args=7
+max-attributes=10
+min-public-methods=1
+
+[BASIC]
+good-names=i,j,k,ex,Run,_,id,db
+
+[TYPECHECK]
+ignored-modules=sqlalchemy
+ignored-classes=Session

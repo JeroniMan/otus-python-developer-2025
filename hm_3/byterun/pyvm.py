@@ -220,12 +220,23 @@ class VirtualMachine:
                 # Deal with any block management
                 if why == 'break':
                     # Find the nearest loop block
-                    while frame.block_stack:
-                        block = frame.block_stack.pop()
+                    loop_found = False
+                    for i in range(len(frame.block_stack) - 1, -1, -1):
+                        block = frame.block_stack[i]
                         if block.type == 'loop':
-                            self.jump(block.handler)
+                            # Found the loop to break from
+                            loop_found = True
+                            # Pop all blocks including the loop
+                            while len(frame.block_stack) > i:
+                                frame.block_stack.pop()
+                            # Jump to loop exit
+                            if block.handler is not None:
+                                self.jump(block.handler)
                             why = None
                             break
+                    if not loop_found and why == 'break':
+                        # No loop found, might be in comprehension
+                        why = None
                 elif why and frame.block_stack:
                     why = self.manage_block_stack(frame, why)
 
@@ -612,35 +623,35 @@ class VirtualMachine:
         """Pop and jump forward if false (Python 3.12)."""
         val = self.pop()
         if not val:
-            self.jump(self.frame.offset + target * 2)
+            self.jump(self.frame.offset + target )
 
     def byte_POP_JUMP_FORWARD_IF_TRUE(self, target: int) -> None:
         """Pop and jump forward if true (Python 3.12)."""
         val = self.pop()
         if val:
-            self.jump(self.frame.offset + target * 2)
+            self.jump(self.frame.offset + target )
 
     def byte_POP_JUMP_BACKWARD_IF_FALSE(self, target: int) -> None:
         """Pop and jump backward if false (Python 3.12)."""
         val = self.pop()
         if not val:
-            self.jump(self.frame.offset - target * 2)
+            self.jump(self.frame.offset - target )
 
     def byte_POP_JUMP_BACKWARD_IF_TRUE(self, target: int) -> None:
         """Pop and jump backward if true (Python 3.12)."""
         val = self.pop()
         if val:
-            self.jump(self.frame.offset - target * 2)
+            self.jump(self.frame.offset - target )
 
     def byte_JUMP_FORWARD(self, delta: int) -> None:
         """Jump forward by delta bytes."""
         # delta is in instructions, convert to bytes
-        self.jump(self.frame.offset + delta * 2)
+        self.jump(self.frame.offset + delta )
 
     def byte_JUMP_ABSOLUTE(self, target: int) -> None:
         """Jump to an absolute position."""
         # target is in instructions, convert to bytes
-        self.jump(target * 2)
+        self.jump(target )
 
     def byte_JUMP_IF_TRUE_OR_POP(self, target: int) -> None:
         """Jump if true, or pop if false."""
@@ -661,33 +672,34 @@ class VirtualMachine:
     # Blocks
     def byte_SETUP_LOOP(self, dest: int) -> None:
         """Setup a loop block."""
-        self.frame.push_block('loop', self.frame.offset + dest * 2)
+        self.frame.push_block('loop', self.frame.offset + dest)
 
     def byte_GET_ITER(self, arg: Optional[int]) -> None:
         """Get an iterator for an object."""
         obj = self.pop()
         if obj is not None:
             self.push(iter(obj))
+        else:
+            self.push(None)
 
     def byte_FOR_ITER(self, delta: int) -> None:
         """Get the next item from an iterator."""
-        # Check if stack is empty
         if not self.frame.stack:
             return
 
         iterobj = self.top()
         if iterobj is None:
             self.pop()
-            self.jump(self.frame.offset + delta * 2)
+            self.jump(self.frame.offset + delta )
             return
 
         try:
             v = next(iterobj)
             self.push(v)
         except StopIteration:
-            self.pop()  # Remove the iterator
-            # Jump forward to exit the loop
-            self.jump(self.frame.offset + delta * 2)
+            # Normal end of iteration
+            self.pop()
+            self.jump(self.frame.offset + delta )
 
     def byte_BREAK_LOOP(self, arg: Optional[int]) -> str:
         """Break out of a loop."""
@@ -700,11 +712,11 @@ class VirtualMachine:
 
     def byte_SETUP_EXCEPT(self, dest: int) -> None:
         """Setup an exception handler."""
-        self.frame.push_block('setup-except', self.frame.offset + dest * 2)
+        self.frame.push_block('setup-except', self.frame.offset + dest )
 
     def byte_SETUP_FINALLY(self, dest: int) -> None:
         """Setup a finally handler."""
-        self.frame.push_block('setup-finally', self.frame.offset + dest * 2)
+        self.frame.push_block('setup-finally', self.frame.offset + dest )
 
     def byte_POP_BLOCK(self, arg: Optional[int]) -> None:
         """Pop a block from the block stack."""
@@ -714,32 +726,27 @@ class VirtualMachine:
         """Load AssertionError for assertion statements."""
         self.push(AssertionError)
 
-    def byte_RAISE_VARARGS(self, argc: int) -> str:
+    def byte_RAISE_VARARGS(self, argc: int) -> None:
         """Raise an exception."""
         if argc == 0:
             # Re-raise
             if self.last_exception:
                 exc, val, tb = self.last_exception
-                # Don't raise, just mark for exception handling
-                return 'exception'
+                raise val if val else RuntimeError("No active exception to reraise")
             else:
                 raise RuntimeError("No active exception to reraise")
         elif argc == 1:
             exc = self.pop()
             if isinstance(exc, type) and issubclass(exc, BaseException):
                 exc = exc()
-            # Store exception but don't raise yet
-            self.last_exception = (type(exc), exc, None)
-            return 'exception'
+            raise exc
         elif argc == 2:
             cause = self.pop()
             exc = self.pop()
             if isinstance(exc, type) and issubclass(exc, BaseException):
                 exc = exc()
             exc.__cause__ = cause
-            self.last_exception = (type(exc), exc, None)
-            return 'exception'
-        return 'exception'
+            raise exc
 
     def byte_POP_EXCEPT(self, arg: Optional[int]) -> None:
         """Pop an exception from the stack."""
@@ -769,6 +776,26 @@ class VirtualMachine:
     # Function calling
     def byte_MAKE_FUNCTION(self, argc: int) -> None:
         """Make a function from a code object."""
+        # In Python 3.12, function creation has changed
+        # We need to handle it differently
+        if self.frame.code.co_consts and len(self.frame.stack) > 0:
+            # For comprehensions, there's usually a code object as a constant
+            code = self.pop()
+            name = None if not isinstance(code, str) else code
+
+            # If name is None, try getting it from code object
+            if name is None and hasattr(code, 'co_name'):
+                name = code.co_name
+            elif name is None:
+                name = '<lambda>'
+
+            # For comprehensions, the code object is what we need
+            if hasattr(code, 'co_code'):
+                fn = Function(name, code, self.frame.f_globals, None, None, self)
+                self.push(fn)
+                return
+
+        # Normal function creation
         name = self.pop()
         code = self.pop()
 
@@ -911,52 +938,34 @@ class VirtualMachine:
         self.push(None)
 
     def byte_CALL(self, arg: int) -> None:
-        """Call a callable with arguments (Python 3.11+)."""
-        # In Python 3.12, arg is the number of arguments (not including the callable)
+        """Call a callable with positional-only arguments (Python 3.11/3.12 style)."""
+        # Collect positional args (TOS-first), then restore natural order
         args = []
         for _ in range(arg):
-            a = self.pop()
-            if a is not None:
-                args.append(a)
-        args = list(reversed(args))
+            args.append(self.pop())
+        args.reverse()
 
-        # Pop the NULL/self marker if present
-        null_or_self = self.pop()
+        # Optional NULL sentinel (PUSH_NULL) may be present; represented as None in this VM
+        if self.top() is None:
+            self.pop()  # drop NULL
 
-        # Pop the callable
+        # Next item should be the callable
         func = self.pop()
 
-        # If null_or_self is actually a callable (method case), handle it
-        if callable(null_or_self) and func is None:
-            func = null_or_self
-            null_or_self = None
-
-        # Filter out NULL markers
-        if null_or_self is not None and null_or_self != func and callable(null_or_self):
-            args = [null_or_self] + args
-
-        # Make the call
-        if func is None:
-            self.push(None)
-            return
-
+        # Support legacy bound-method attributes
         if hasattr(func, 'im_func'):
-            # Method call
-            if func.im_self:
+            if getattr(func, 'im_self', None):
                 args = [func.im_self] + args
             func = func.im_func
 
-        if callable(func):
-            try:
-                result = func(*args)
-                self.push(result)
-            except Exception as e:
-                # Let exception propagate
-                self.last_exception = sys.exc_info()
-                raise
-        else:
-            # Not callable - push None
+        if not callable(func):
+            # Not callable – follow CPython behavior and raise TypeError inside VM?
+            # For robustness in this educational VM, just push None.
             self.push(None)
+            return
+
+        result = func(*args)
+        self.push(result)
 
     def byte_BINARY_OP(self, op: int) -> None:
         """Binary operation (Python 3.11+)."""
@@ -1001,12 +1010,8 @@ class VirtualMachine:
             25: operator.xor,  # inplace
         }
         if op in ops:
-            try:
-                self.push(ops[op](x, y))
-            except Exception as e:
-                # Store exception and re-raise
-                self.last_exception = sys.exc_info()
-                raise
+            # Don't catch exceptions - let them propagate for proper handling
+            self.push(ops[op](x, y))
         else:
             raise VirtualMachineError(f"Unknown binary op: {op}")
 
@@ -1036,11 +1041,11 @@ class VirtualMachine:
     def byte_JUMP_BACKWARD(self, delta: int) -> None:
         """Jump backward by delta bytes."""
         # In Python 3.12, delta is the number of instructions to jump back
-        self.jump(self.frame.offset - delta * 2)
+        self.jump(self.frame.offset - delta )
 
     def byte_JUMP_BACKWARD_NO_INTERRUPT(self, delta: int) -> None:
         """Jump backward without interrupt check (Python 3.12)."""
-        self.jump(self.frame.offset - delta * 2)
+        self.jump(self.frame.offset - delta )
 
     def byte_LIST_EXTEND(self, count: int) -> None:
         """Extend list with items from iterable."""
@@ -1117,14 +1122,15 @@ class VirtualMachine:
 
     def byte_CHECK_EXC_MATCH(self, arg: Optional[int]) -> None:
         """Check if exception matches."""
-        exc_type = self.pop()
-        exc_value = self.top()
+        right = self.pop()  # Exception type to match
+        left = self.pop()   # Exception instance
 
-        # Check if exception matches the type
-        if exc_value is None:
-            self.push(False)
-        elif isinstance(exc_type, type) and isinstance(exc_value, BaseException):
-            self.push(isinstance(exc_value, exc_type))
+        # Check if the exception matches
+        if isinstance(left, BaseException):
+            if isinstance(right, type) and issubclass(right, BaseException):
+                self.push(isinstance(left, right))
+            else:
+                self.push(False)
         else:
             self.push(False)
 
@@ -1176,17 +1182,9 @@ class VirtualMachine:
         pass
 
     def byte_PUSH_EXC_INFO(self, arg: Optional[int]) -> None:
-        """Push exception info."""
-        # Used in exception handling - push current exception onto stack
-        if self.last_exception:
-            exc_type, exc_value, exc_tb = self.last_exception
-            self.push(exc_tb)
-            self.push(exc_value)
-            self.push(exc_type)
-        else:
-            self.push(None)
-            self.push(None)
-            self.push(None)
+        """Push exception info onto the stack."""
+        # Used in exception handling - implemented as no-op for now
+        pass
 
     def byte_SETUP_WITH(self, delta: int) -> None:
         """Setup for with statement."""
