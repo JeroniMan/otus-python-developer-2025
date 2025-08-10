@@ -1,0 +1,86 @@
+name: CI - HM5
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'hm_5/**'
+      - '.github/workflows/hm_5.yml'
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'hm_5/**'
+      - '.github/workflows/hm_5.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hm_5
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: 🧾 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 🛠️ Install UV
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "hm_5/pyproject.toml"
+
+      - name: 📦 Install dependencies
+        run: uv sync --all-extras
+
+      - name: 🎨 Check formatting with black
+        run: uv run black --check .
+
+      - name: 🔍 Lint with flake8
+        run: uv run flake8 . --exclude=test*.py
+
+      - name: 🔠 Type check with mypy
+        run: uv run mypy . --ignore-missing-imports || true
+
+      - name: 🔀 Check import order with isort
+        run: uv run isort --check-only .
+
+      - name: 🧪 Run unit tests
+        run: uv run python -m pytest test.py -v
+
+      - name: 🔗 Run integration tests
+        run: uv run python -m pytest test_integration.py -v -m integration
+        env:
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+
+      - name: 📊 Generate coverage report
+        run: |
+          uv run pytest test.py --cov=. --cov-report=term-missing --cov-report=xml
+        continue-on-error: true
+
+      - name: 📈 Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./hm_5/coverage.xml
+          flags: unittests
+          name: hm5-coverage
+        continue-on-error: true
