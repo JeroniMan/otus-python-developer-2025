@@ -26,7 +26,7 @@ format:
 # Run linters
 lint:
 	uv run black --check .
-	uv run flake8 . --exclude=test*.py,.venv/*
+	uv run flake8 . --exclude=test*.py
 	uv run mypy . --ignore-missing-imports
 	uv run isort --check-only .
 
