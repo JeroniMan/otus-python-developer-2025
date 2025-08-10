@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'hm_4/**'
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'hm_4/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hm_4
+
+    steps:
+      - name: 🧾 Checkout repository
+        uses: actions/checkout@v3
+
+      - name: ⚙️ Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: 🛠️ Install UV
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "hm_4/pyproject.toml"
+
+      - name: 📦 Install dependencies
+        run: uv sync --all-extras
+
+      - name: 🎨 Check formatting with black
+        run: uv run black --check .
+
+      - name: 🔍 Lint with flake8
+        run: uv run flake8 .
+
+      - name: 🔠 Type check with mypy
+        run: uv run mypy . --ignore-missing-imports
+
+      - name: 🔀 Check import order with isort
+        run: uv run isort --check-only .
+
+      - name: 🧪 Run tests
+        run: uv run python test.py
