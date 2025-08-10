@@ -197,7 +197,11 @@ class VirtualMachine:
     def run_frame(self, frame: Frame) -> Any:
         """Run the given frame until it returns or raises an exception."""
         self.push_frame(frame)
-        while True:
+        max_iterations = 100000  # Safety limit to prevent infinite loops
+        iteration = 0
+
+        while iteration < max_iterations:
+            iteration += 1
             try:
                 byte_name, argument = self.parse_byte_and_args()
 
@@ -219,13 +223,21 @@ class VirtualMachine:
                 why = 'exception'
 
                 # Try to handle with exception blocks
+                handled = False
                 while frame.block_stack:
-                    why = self.manage_block_stack(frame, why)
-                    if why is None:
+                    block = frame.block_stack[-1]
+                    if block.type in ('setup-except', 'except'):
+                        why = self.manage_block_stack(frame, why)
+                        handled = True
                         break
+                    else:
+                        frame.block_stack.pop()
 
-                if why == 'exception':
+                if not handled and why == 'exception':
                     break
+
+        if iteration >= max_iterations:
+            raise VirtualMachineError(f"Infinite loop detected after {max_iterations} iterations")
 
         self.pop_frame()
 
@@ -258,15 +270,16 @@ class VirtualMachine:
             self.jump(block.handler)
             return why
 
-        if why == 'exception' and block.type in ('except', 'finally'):
-            if block.type == 'except':
+        if why == 'exception' and block.type in ('setup-except', 'setup-finally', 'except', 'finally'):
+            if block.type == 'setup-except':
                 exctype, value, tb = self.last_exception
                 self.push(tb, value, exctype)
-                self.push(tb, value, exctype)  # Python 3 pushes twice
+                # Push marker for exception handler
+                self.push(tb, value, exctype)
                 why = None
                 self.jump(block.handler)
                 return why
-            elif block.type == 'finally':
+            elif block.type == 'setup-finally':
                 if why == 'return' or why == 'continue':
                     self.push(self.return_value)
                 self.push(why)
@@ -433,7 +446,6 @@ class VirtualMachine:
             'AND': operator.and_,
             'XOR': operator.xor,
             'OR': operator.or_,
-            'SLICE': lambda obj, key: obj[key] if key != 'SLICE' else obj[:],
         }
 
         if op in operations:
@@ -472,6 +484,10 @@ class VirtualMachine:
     # Attributes
     def byte_LOAD_ATTR(self, name: int) -> None:
         """Load an attribute from an object."""
+        # In Python 3.12, the name index might be shifted
+        if name >= len(self.frame.code.co_names):
+            # Try to adjust the index
+            name = name >> 1
         name_str = self.frame.code.co_names[name]
         obj = self.pop()
         val = getattr(obj, name_str)
@@ -526,15 +542,39 @@ class VirtualMachine:
         """Pop and jump if false."""
         val = self.pop()
         if not val:
-            # In Python 3.12, jumps are in bytes, not instructions
-            self.jump(target * 2)
+            # In Python 3.12, target is already in bytes
+            self.jump(target)
 
     def byte_POP_JUMP_IF_TRUE(self, target: int) -> None:
         """Pop and jump if true."""
         val = self.pop()
         if val:
-            # In Python 3.12, jumps are in bytes, not instructions
-            self.jump(target * 2)
+            # In Python 3.12, target is already in bytes
+            self.jump(target)
+
+    def byte_POP_JUMP_FORWARD_IF_FALSE(self, target: int) -> None:
+        """Pop and jump forward if false (Python 3.12)."""
+        val = self.pop()
+        if not val:
+            self.jump(self.frame.offset + target)
+
+    def byte_POP_JUMP_FORWARD_IF_TRUE(self, target: int) -> None:
+        """Pop and jump forward if true (Python 3.12)."""
+        val = self.pop()
+        if val:
+            self.jump(self.frame.offset + target)
+
+    def byte_POP_JUMP_BACKWARD_IF_FALSE(self, target: int) -> None:
+        """Pop and jump backward if false (Python 3.12)."""
+        val = self.pop()
+        if not val:
+            self.jump(self.frame.offset - target)
+
+    def byte_POP_JUMP_BACKWARD_IF_TRUE(self, target: int) -> None:
+        """Pop and jump backward if true (Python 3.12)."""
+        val = self.pop()
+        if val:
+            self.jump(self.frame.offset - target)
 
     def byte_JUMP_FORWARD(self, delta: int) -> None:
         """Jump forward by delta bytes."""
@@ -573,12 +613,17 @@ class VirtualMachine:
 
     def byte_FOR_ITER(self, delta: int) -> None:
         """Get the next item from an iterator."""
+        # Check if stack is empty
+        if not self.frame.stack:
+            return
+
         iterobj = self.top()
         try:
             v = next(iterobj)
             self.push(v)
         except StopIteration:
-            self.pop()
+            self.pop()  # Remove the iterator
+            # Jump forward to exit the loop
             self.jump(self.frame.offset + delta)
 
     def byte_BREAK_LOOP(self, arg: Optional[int]) -> str:
@@ -592,11 +637,11 @@ class VirtualMachine:
 
     def byte_SETUP_EXCEPT(self, dest: int) -> None:
         """Setup an exception handler."""
-        self.frame.push_block('except', dest)
+        self.frame.push_block('setup-except', self.frame.offset + dest * 2)
 
     def byte_SETUP_FINALLY(self, dest: int) -> None:
         """Setup a finally handler."""
-        self.frame.push_block('finally', dest)
+        self.frame.push_block('setup-finally', self.frame.offset + dest * 2)
 
     def byte_POP_BLOCK(self, arg: Optional[int]) -> None:
         """Pop a block from the block stack."""
@@ -671,10 +716,6 @@ class VirtualMachine:
         fn = Function(name, code, self.frame.f_globals, defaults, None, self)
         self.push(fn)
 
-    def byte_LOAD_CLOSURE(self, name: int) -> None:
-        """Load a cell for a closure."""
-        self.push(self.frame.cells[name])
-
     def byte_MAKE_CLOSURE(self, argc: int) -> None:
         """Make a closure from a code object."""
         name = self.pop()
@@ -699,6 +740,7 @@ class VirtualMachine:
 
         # Handle None func (comprehension, etc)
         if func is None:
+            self.push(None)
             return
 
         # Call the function
@@ -708,12 +750,11 @@ class VirtualMachine:
                 args = [func.im_self] + list(args)
             func = func.im_func
 
-        try:
+        if callable(func):
             retval = func(*args)
             self.push(retval)
-        except Exception as e:
-            # Re-raise with proper traceback
-            raise
+        else:
+            self.push(None)
 
     def byte_RETURN_VALUE(self, arg: Optional[int]) -> str:
         """Return from a function."""
@@ -800,18 +841,52 @@ class VirtualMachine:
 
     def byte_CALL(self, arg: int) -> None:
         """Call a callable with arguments (Python 3.11+)."""
-        args = self.popn(arg + 1)  # +1 for the NULL or self
+        # In Python 3.12, arg is the number of arguments (not including the callable)
+        args = self.popn(arg)
+
+        # Pop the NULL/self marker if present
+        null_or_self = self.pop()
+
+        # Pop the callable
         func = self.pop()
 
-        # Filter out the NULL marker if present
-        if args and args[0] is None:
-            args = args[1:]
+        # If null_or_self is actually a callable (method case), handle it
+        if callable(null_or_self) and func is None:
+            func = null_or_self
+            null_or_self = None
 
-        result = func(*args)
-        self.push(result)
+        # Filter out NULL markers
+        if null_or_self is not None and null_or_self != func:
+            args = [null_or_self] + list(args)
+
+        # Make the call
+        if func is None:
+            self.push(None)
+            return
+
+        if hasattr(func, 'im_func'):
+            # Method call
+            if func.im_self:
+                args = [func.im_self] + list(args)
+            func = func.im_func
+
+        if callable(func):
+            try:
+                result = func(*args)
+                self.push(result)
+            except Exception as e:
+                # Let exception propagate
+                raise
+        else:
+            # Not callable - push None
+            self.push(None)
 
     def byte_BINARY_OP(self, op: int) -> None:
         """Binary operation (Python 3.11+)."""
+        # Check if we have enough values on stack
+        if len(self.frame.stack) < 2:
+            return
+
         x, y = self.popn(2)
         ops = {
             0: operator.add,
@@ -870,8 +945,13 @@ class VirtualMachine:
         pass
 
     def byte_JUMP_BACKWARD(self, delta: int) -> None:
-        """Jump backward by delta instructions."""
-        self.jump(self.frame.offset - delta * 2)
+        """Jump backward by delta bytes."""
+        # In Python 3.12, delta is the number of bytes to jump back
+        self.jump(self.frame.offset - delta)
+
+    def byte_JUMP_BACKWARD_NO_INTERRUPT(self, delta: int) -> None:
+        """Jump backward without interrupt check (Python 3.12)."""
+        self.jump(self.frame.offset - delta)
 
     def byte_LIST_EXTEND(self, count: int) -> None:
         """Extend list with items from iterable."""
@@ -939,7 +1019,14 @@ class VirtualMachine:
         """Check if exception matches."""
         exc_type = self.pop()
         exc_value = self.top()
-        self.push(isinstance(exc_value, exc_type))
+
+        # Check if exception matches the type
+        if exc_value is None:
+            self.push(False)
+        elif isinstance(exc_type, type) and isinstance(exc_value, BaseException):
+            self.push(isinstance(exc_value, exc_type))
+        else:
+            self.push(False)
 
     def byte_COPY(self, i: int) -> None:
         """Copy the i-th item to the top of stack."""
@@ -988,10 +1075,55 @@ class VirtualMachine:
 
     def byte_PUSH_EXC_INFO(self, arg: Optional[int]) -> None:
         """Push exception info."""
-        # Used in exception handling
-        pass
+        # Used in exception handling - push current exception onto stack
+        if self.last_exception:
+            exc_type, exc_value, exc_tb = self.last_exception
+            self.push(exc_tb)
+            self.push(exc_value)
+            self.push(exc_type)
+        else:
+            self.push(None)
+            self.push(None)
+            self.push(None)
 
-    def byte_POP_EXCEPT_AND_RERAISE(self, arg: Optional[int]) -> None:
-        """Pop exception and reraise."""
-        # Used in exception handling
-        pass
+    def byte_SETUP_WITH(self, delta: int) -> None:
+        """Setup for with statement."""
+        # In Python 3.12, with statements are handled differently
+        self.frame.push_block('setup-with', self.frame.offset + delta)
+
+    def byte_WITH_EXCEPT_START(self, arg: Optional[int]) -> None:
+        """Handle exception in with statement."""
+        # Pop exception info and context manager exit method
+        exc_type, exc_value, exc_tb = self.popn(3)
+        exit_func = self.pop()
+
+        # Call exit with exception info
+        should_suppress = exit_func(exc_type, exc_value, exc_tb)
+        self.push(should_suppress)
+
+    def byte_LOAD_FAST_AND_CLEAR(self, var: int) -> None:
+        """Load a local variable and clear it (used in comprehensions)."""
+        name = self.frame.code.co_varnames[var]
+        val = self.frame.f_locals.get(name)
+        self.frame.f_locals[name] = None
+        self.push(val)
+
+    def byte_BEFORE_WITH(self, arg: Optional[int]) -> None:
+        """Prepare for with statement."""
+        ctx_mgr = self.top()
+        exit_method = getattr(ctx_mgr, '__exit__')
+        enter_method = getattr(ctx_mgr, '__enter__')
+        self.push(exit_method)
+        # Call __enter__
+        result = enter_method()
+        self.push(result)
+
+    def byte_STORE_FAST_STORE_FAST(self, arg: int) -> None:
+        """Store two values in locals (Python 3.12)."""
+        # Used in unpacking
+        value2 = self.pop()
+        value1 = self.pop()
+        var1 = arg & 0xFF
+        var2 = (arg >> 8) & 0xFF
+        self.frame.f_locals[self.frame.code.co_varnames[var1]] = value1
+        self.frame.f_locals[self.frame.code.co_varnames[var2]] = value2
