@@ -8,4 +8,5 @@ exclude =
     dist,
     .venv,
     .pytest_cache,
-    htmlcov
+    htmlcov,
+    test*.py

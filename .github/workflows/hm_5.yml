@@ -55,7 +55,7 @@ jobs:
         run: uv run black --check .
 
       - name: 🔍 Lint with flake8
-        run: uv run flake8 . --exclude=test*.py
+        run: uv run flake8 . --exclude=test*.py,.venv/*
 
       - name: 🔠 Type check with mypy
         run: uv run mypy . --ignore-missing-imports || true
