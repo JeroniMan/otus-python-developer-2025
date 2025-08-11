@@ -1,0 +1,96 @@
+# .pre-commit-config.yaml
+default_language_version:
+  python: python3.12
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^.*\.(md|rst|tsv)$
+      - id: end-of-file-fixer
+        exclude: ^.*\.(md|rst|tsv|gz)$
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: check-toml
+      - id: check-json
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+        exclude: ^.*\.gz$
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: debug-statements
+      - id: detect-private-key
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+      - id: name-tests-test
+        args: ['--pytest-test-first']
+        exclude: ^tests/fixtures/
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.5.0
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+        exclude: appsinstalled_pb2.py
+      - id: ruff-format
+        exclude: appsinstalled_pb2.py
+
+  - repo: https://github.com/psf/black
+    rev: 24.4.2
+    hooks:
+      - id: black
+        language_version: python3.12
+        args: [--config=pyproject.toml]
+        exclude: appsinstalled_pb2.py
+
+  - repo: https://github.com/PyCQA/flake8
+    rev: 7.0.0
+    hooks:
+      - id: flake8
+        args: [--max-line-length=88, --extend-ignore=E203]
+        exclude: appsinstalled_pb2.py
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.10.0
+    hooks:
+      - id: mypy
+        additional_dependencies: [types-all, types-protobuf]
+        args: [--ignore-missing-imports, --no-strict-optional]
+        exclude: ^(tests/|appsinstalled_pb2.py)
+
+  - repo: https://github.com/pycqa/bandit
+    rev: 1.7.9
+    hooks:
+      - id: bandit
+        args: [-ll, -x, tests]
+        exclude: appsinstalled_pb2.py
+
+  - repo: https://github.com/pycqa/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        args: [--profile=black]
+        exclude: appsinstalled_pb2.py
+
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v3.16.0
+    hooks:
+      - id: pyupgrade
+        args: [--py311-plus]
+        exclude: appsinstalled_pb2.py
+
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v3.27.0
+    hooks:
+      - id: commitizen
+        stages: [commit-msg]
+
+  - repo: local
+    hooks:
+      - id: check-protobuf
+        name: Check Protocol Buffers
+        entry: bash -c 'if command -v protoc &> /dev/null; then protoc --python_out=. appsinstalled.proto && git diff --exit-code appsinstalled_pb2.py; fi'
+        language: system
+        files: \.proto$
+        pass_filenames: false

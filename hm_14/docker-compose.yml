@@ -1,0 +1,98 @@
+# docker-compose.yml
+version: '3.8'
+
+services:
+  # Memcached instances for different device types
+  memcached-idfa:
+    image: memcached:latest
+    container_name: memcached-idfa
+    ports:
+      - "33013:11211"
+    command: memcached -m 256 -I 10m
+    restart: unless-stopped
+    networks:
+      - memcache-net
+
+  memcached-gaid:
+    image: memcached:latest
+    container_name: memcached-gaid
+    ports:
+      - "33014:11211"
+    command: memcached -m 256 -I 10m
+    restart: unless-stopped
+    networks:
+      - memcache-net
+
+  memcached-adid:
+    image: memcached:latest
+    container_name: memcached-adid
+    ports:
+      - "33015:11211"
+    command: memcached -m 256 -I 10m
+    restart: unless-stopped
+    networks:
+      - memcache-net
+
+  memcached-dvid:
+    image: memcached:latest
+    container_name: memcached-dvid
+    ports:
+      - "33016:11211"
+    command: memcached -m 256 -I 10m
+    restart: unless-stopped
+    networks:
+      - memcache-net
+
+  # Application service
+  loader:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: memcache-loader
+    depends_on:
+      - memcached-idfa
+      - memcached-gaid
+      - memcached-adid
+      - memcached-dvid
+    volumes:
+      - ./data:/data/appsinstalled
+      - ./logs:/app/logs
+    environment:
+      - DIRLOCATION=/data/appsinstalled
+      - PYTHONUNBUFFERED=1
+    command: >
+      --pattern=/data/appsinstalled/*.tsv.gz
+      --idfa=memcached-idfa:11211
+      --gaid=memcached-gaid:11211
+      --adid=memcached-adid:11211
+      --dvid=memcached-dvid:11211
+      --maxworkers=10
+      --log=/app/logs/loader.log
+      --loginfo
+    networks:
+      - memcache-net
+    restart: unless-stopped
+
+  # Monitoring with Memcached Exporter (optional)
+  memcached-exporter:
+    image: prom/memcached-exporter:latest
+    container_name: memcached-exporter
+    ports:
+      - "9150:9150"
+    command:
+      - '--memcached.address=memcached-idfa:11211'
+    depends_on:
+      - memcached-idfa
+    networks:
+      - memcache-net
+    restart: unless-stopped
+
+networks:
+  memcache-net:
+    driver: bridge
+
+volumes:
+  data:
+    driver: local
+  logs:
+    driver: local

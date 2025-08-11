@@ -1,0 +1,17 @@
+# Core dependencies
+fastapi==0.115.12
+uvicorn[standard]==0.34.2
+pydantic==2.11.4
+
+# Authentication
+passlib[bcrypt]==1.7.4
+pyjwt==2.10.1
+python-multipart==0.0.20
+
+# Development
+pylint==3.3.6
+
+# Optional: for better performance
+httptools==0.6.4
+uvloop==0.21.0
+watchfiles==1.0.4
