@@ -1,0 +1,76 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+        files: ^hm_8/
+      - id: end-of-file-fixer
+        files: ^hm_8/
+      - id: check-yaml
+        files: ^hm_8/
+      - id: check-added-large-files
+        files: ^hm_8/
+      - id: check-json
+        files: ^hm_8/
+      - id: check-toml
+        files: ^hm_8/
+      - id: check-merge-conflict
+        files: ^hm_8/
+      - id: debug-statements
+        files: ^hm_8/.*\.py$
+      - id: mixed-line-ending
+        files: ^hm_8/
+
+  - repo: https://github.com/psf/black
+    rev: 24.1.0
+    hooks:
+      - id: black
+        files: ^hm_8/.*\.py$
+        args: [--line-length=100]
+
+  - repo: https://github.com/pycqa/isort
+    rev: 5.13.0
+    hooks:
+      - id: isort
+        files: ^hm_8/.*\.py$
+        args: [--profile=black, --line-length=100]
+
+  - repo: https://github.com/pycqa/flake8
+    rev: 7.0.0
+    hooks:
+      - id: flake8
+        files: ^hm_8/.*\.py$
+        args: [--max-line-length=100, --exclude=migrations]
+        additional_dependencies: [flake8-docstrings]
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.8.0
+    hooks:
+      - id: mypy
+        files: ^hm_8/.*\.py$
+        args: [--ignore-missing-imports, --exclude=migrations]
+        additional_dependencies: [django-stubs]
+
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.5
+    hooks:
+      - id: bandit
+        files: ^hm_8/.*\.py$
+        args: [-r, --skip=B101]
+        exclude: ^hm_8/.*/tests/.*$
+
+  - repo: local
+    hooks:
+      - id: django-check
+        name: Django Check
+        entry: python hm_8/mysite/manage.py check
+        language: system
+        pass_filenames: false
+        files: ^hm_8/.*\.py$
+
+      - id: django-migrations
+        name: Check Django Migrations
+        entry: python hm_8/mysite/manage.py makemigrations --check --dry-run
+        language: system
+        pass_filenames: false
+        files: ^hm_8/.*/models\.py$
