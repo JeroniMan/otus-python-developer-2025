@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'hm_10/**'
+      - '.github/workflows/hm_10.yml'
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'hm_10/**'
+      - '.github/workflows/hm_10.yml'
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./hm_10
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v4
+      with:
+        enable-cache: true
+        cache-dependency-glob: "hm_10/requirements.txt"
+
+    - name: Set up Python
+      run: uv python install 3.12
+
+    - name: Install dependencies
+      run: |
+        uv venv
+        uv pip install -r requirements.txt
+
+    - name: Lint with pylint
+      run: |
+        uv run pylint app/ --fail-under=7.0 || true
+
+    - name: Check FastAPI app startup
+      run: |
+        # Test that the app can be imported without errors
+        uv run python -c "from app.app import app; print('FastAPI app imported successfully')"
+
+    - name: Run basic API test
+      run: |
+        # Start the server in background
+        uv run uvicorn app.app:app --host 127.0.0.1 --port 8000 &
+        SERVER_PID=$!
+        
+        # Wait for server to start
+        sleep 5
+        
+        # Test the root endpoint
+        curl -f http://localhost:8000/ || exit 1
+        
+        # Kill the server
+        kill $SERVER_PID || true
+        
+        echo "API test passed!"
+
+  security-check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./hm_10
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v4
+
+    - name: Set up Python
+      run: uv python install 3.12
+
+    - name: Install dependencies
+      run: |
+        uv venv
+        uv pip install -r requirements.txt
+        uv pip install bandit safety
+
+    - name: Security check with bandit
+      run: |
+        uv run bandit -r app/ -ll || true
+
+    - name: Check for known vulnerabilities
+      run: |
+        uv run safety check || true
