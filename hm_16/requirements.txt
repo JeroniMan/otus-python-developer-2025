@@ -1,0 +1,10 @@
+aiohttp==3.9.1
+asyncpg==0.29.0
+beautifulsoup4==4.12.2
+python-dotenv==1.0.0
+lxml==4.9.3
+
+# Для тестов (опционально)
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
