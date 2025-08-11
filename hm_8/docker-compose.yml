@@ -1,0 +1,133 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: django-polls-db
+    environment:
+      POSTGRES_DB: polls_db
+      POSTGRES_USER: polls_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-secretpassword}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U polls_user -d polls_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - django-network
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: django-polls-web
+    command: >
+      sh -c "
+        cd mysite &&
+        python manage.py migrate &&
+        python manage.py collectstatic --noinput &&
+        gunicorn mysite.wsgi:application --bind 0.0.0.0:8000 --workers 3 --reload
+      "
+    volumes:
+      - ./mysite:/app/mysite
+      - static_volume:/app/static
+      - media_volume:/app/media
+    ports:
+      - "8000:8000"
+    environment:
+      - DEBUG=${DEBUG:-False}
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-here}
+      - DATABASE_URL=postgresql://polls_user:${DB_PASSWORD:-secretpassword}@db:5432/polls_db
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - django-network
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    container_name: django-polls-nginx
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - static_volume:/usr/share/nginx/html/static:ro
+      - media_volume:/usr/share/nginx/html/media:ro
+    ports:
+      - "80:80"
+    depends_on:
+      - web
+    networks:
+      - django-network
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: django-polls-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - django-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  celery:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: django-polls-celery
+    command: celery -A mysite worker -l info
+    volumes:
+      - ./mysite:/app/mysite
+    environment:
+      - DEBUG=${DEBUG:-False}
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-here}
+      - DATABASE_URL=postgresql://polls_user:${DB_PASSWORD:-secretpassword}@db:5432/polls_db
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - db
+      - redis
+    networks:
+      - django-network
+    profiles:
+      - with-celery
+
+  flower:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: django-polls-flower
+    command: celery -A mysite flower
+    ports:
+      - "5555:5555"
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
+      - celery
+    networks:
+      - django-network
+    profiles:
+      - with-celery
+
+networks:
+  django-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  static_volume:
+  media_volume:
+  redis_data:
