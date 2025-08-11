@@ -1,0 +1,222 @@
+name: CI - HM7
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'hm_7/**'
+      - '.github/workflows/hm_7.yml'
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'hm_7/**'
+      - '.github/workflows/hm_7.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hm_7
+
+    steps:
+      - name: 🧾 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 🛠️ Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: '1.8.2'
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: 📦 Load cached dependencies
+        id: cached-poetry-dependencies
+        uses: actions/cache@v3
+        with:
+          path: hm_7/.venv
+          key: venv-${{ runner.os }}-${{ hashFiles('**/poetry.lock') }}
+
+      - name: 📦 Install dependencies
+        if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
+        run: poetry install --no-interaction --no-root
+
+      - name: 🎨 Check formatting with black
+        run: poetry run black --check src/ tests/
+
+      - name: 🔀 Check import order with isort
+        run: poetry run isort --check-only src/ tests/
+
+      - name: 🔍 Lint with flake8
+        run: poetry run flake8 src/ tests/ --max-line-length=120 --exclude=.venv
+
+      - name: 🔍 Lint with pylint
+        run: poetry run pylint src/ --disable=C0114,C0115,C0116,R0903,R0913,W0212
+        continue-on-error: true
+
+      - name: 🔠 Type check with mypy
+        run: poetry run mypy src/ --ignore-missing-imports
+        continue-on-error: true
+
+      - name: 🧪 Run unit tests
+        run: |
+          poetry run pytest tests/test_server.py -v --tb=short
+
+      - name: 📊 Generate coverage report
+        run: |
+          poetry run pytest tests/ --cov=src --cov-report=xml --cov-report=term-missing
+        continue-on-error: true
+
+      - name: 📈 Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./hm_7/coverage.xml
+          flags: unittests
+          name: hm7-coverage
+        continue-on-error: true
+
+  integration-test:
+    runs-on: ubuntu-latest
+    needs: test
+    defaults:
+      run:
+        working-directory: hm_7
+
+    steps:
+      - name: 🧾 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 🛠️ Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: '1.8.2'
+
+      - name: 📦 Install dependencies
+        run: poetry install --no-interaction --no-root
+
+      - name: 🌐 Start HTTP server
+        run: |
+          poetry run python src/httpd.py -p 8080 -r docs &
+          echo $! > .server.pid
+          sleep 2
+
+      - name: 🧪 Test server availability
+        run: |
+          curl -I http://localhost:8080/ || exit 1
+
+      - name: 📥 Clone http-test-suite
+        run: |
+          cd ..
+          git clone https://github.com/s-stupnikov/http-test-suite.git
+          cd http-test-suite
+          poetry install --no-root
+
+      - name: 🧪 Run http-test-suite
+        run: |
+          cd ../http-test-suite
+          poetry run python httptest.py --host localhost --port 8080
+        continue-on-error: true
+
+      - name: 🛑 Stop server
+        if: always()
+        run: |
+          if [ -f .server.pid ]; then
+            kill $(cat .server.pid) || true
+            rm .server.pid
+          fi
+
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: test
+    defaults:
+      run:
+        working-directory: hm_7
+
+    steps:
+      - name: 🧾 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🔨 Build Docker image
+        run: docker build -t http-server:test .
+
+      - name: 🧪 Test Docker container
+        run: |
+          docker run -d --name test-server -p 8080:8080 http-server:test
+          sleep 3
+          curl -I http://localhost:8080/ || exit 1
+          docker stop test-server
+          docker rm test-server
+
+  performance-test:
+    runs-on: ubuntu-latest
+    needs: [test, integration-test]
+    defaults:
+      run:
+        working-directory: hm_7
+
+    steps:
+      - name: 🧾 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 🛠️ Install Poetry
+        uses: snok/install-poetry@v1
+
+      - name: 📦 Install dependencies
+        run: poetry install --no-interaction --no-root
+
+      - name: 🔧 Install Apache Bench
+        run: sudo apt-get update && sudo apt-get install -y apache2-utils
+
+      - name: 🌐 Start server for benchmarking
+        run: |
+          poetry run python src/httpd.py -p 8080 -r docs -w 4 &
+          echo $! > .server.pid
+          sleep 2
+
+      - name: 📊 Run performance test
+        run: |
+          echo "Running Apache Bench..."
+          ab -n 1000 -c 10 -t 10 http://localhost:8080/ > benchmark_results.txt
+          cat benchmark_results.txt
+
+      - name: 📈 Analyze performance
+        run: |
+          echo "=== Performance Results ==="
+          grep "Requests per second" benchmark_results.txt
+          grep "Time per request" benchmark_results.txt
+          grep "Transfer rate" benchmark_results.txt
+
+      - name: 🛑 Stop server
+        if: always()
+        run: |
+          if [ -f .server.pid ]; then
+            kill $(cat .server.pid) || true
+            rm .server.pid
+          fi
+
+      - name: 📤 Upload benchmark results
+        uses: actions/upload-artifact@v3
+        with:
+          name: benchmark-results
+          path: hm_7/benchmark_results.txt
